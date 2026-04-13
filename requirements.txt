@@ -1,0 +1,15 @@
+django
+djangorestframework
+drf-spectacular
+celery
+redis
+cryptography
+mysqlclient
+requests
+pyyaml
+django-cors-headers
+django-redis
+djangorestframework-simplejwt
+prometheus-client
+pytest
+pytest-django

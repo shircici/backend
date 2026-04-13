@@ -2,6 +2,18 @@
 
 本项目提供可运行的 SKU 管理后端，重点覆盖千万级数据场景下的索引、分页、批量写入、缓存与异步导出。
 
+## 0. 技术准则（与项目规范对齐）
+
+| 项 | 说明 |
+|----|------|
+| API 契约 | 由 DRF 定义；**OpenAPI 为唯一契约来源**，见 `/swagger/`、`/redoc/`、`/api/schema/`；禁止仅靠口头/微信传 JSON |
+| 后端服务 | 开发默认 **8000**（`DJANGO_RUNSERVER_PORT`）；前端通过该端口调用 API |
+| MySQL | 默认端口 **3306**（`MYSQL_PORT`） |
+| Redis | 默认端口 **6379**（写在 `REDIS_URL` 中） |
+| 技术栈 | Python + **Django** + **DRF** + **RBAC（Django Group）** + **Celery** + Django Admin |
+
+详细说明见 `docs/API契约与RBAC.md`。初始化 RBAC 组：`python manage.py create_rbac_groups` 或 `task rbac:groups`。
+
 ## 1. 环境要求
 - Python 3.10+
 - MySQL 8.0+
@@ -19,6 +31,8 @@ copy .env.example .env
 ```
 
 关键变量：
+- `BACKEND_PUBLIC_URL`（OpenAPI servers，供前端配置 baseURL）
+- `RBAC_ENFORCE` / `RBAC_API_INTEGRATOR_GROUPS`（生产建议 `RBAC_ENFORCE=true`）
 - `MYSQL_DATABASE` / `MYSQL_HOST` / `MYSQL_USER` / `MYSQL_PASSWORD`
 - `MYSQL_REPLICA_*`（读库，可先与主库一致）
 - `REDIS_URL`

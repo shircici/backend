@@ -1,0 +1,62 @@
+version: "3"
+
+tasks:
+  install:
+    desc: Install Python dependencies
+    cmds:
+      - pip install -r requirements.txt
+
+  migrate:
+    desc: Run database migrations
+    cmds:
+      - python manage.py migrate
+
+  run:
+    desc: Run Django development server (port 8000 per project convention)
+    cmds:
+      - python manage.py runserver 0.0.0.0:8000
+
+  rbac:groups:
+    desc: Create Django RBAC groups (api_integrator, ops_admin)
+    cmds:
+      - python manage.py create_rbac_groups
+
+  worker:
+    desc: Run Celery worker
+    cmds:
+      - celery -A myproject worker -l info -P solo
+
+  beat:
+    desc: Run Celery beat
+    cmds:
+      - celery -A myproject beat -l info
+
+  test:
+    desc: Run Django tests with SQLite test settings
+    cmds:
+      - python manage.py test --settings=myproject.settings_test
+
+  pytest:
+    desc: Run pytest suite
+    cmds:
+      - pytest
+
+  preflight:
+    desc: Run env/db/cache preflight checks
+    cmds:
+      - python manage.py preflight_check
+
+  ops:list:
+    desc: List ops admin users
+    cmds:
+      - python manage.py list_ops_admin
+
+  ops:sync:
+    desc: Sync OPS_ADMIN_USERNAMES into ops_admin group
+    cmds:
+      - python manage.py sync_ops_admin_from_settings
+
+  ops:prune:
+    desc: Remove ops_admin users not in OPS_ADMIN_USERNAMES
+    cmds:
+      - python manage.py prune_ops_admin --keep-superuser
