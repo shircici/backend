@@ -1,5 +1,9 @@
 import time
 from dataclasses import dataclass
+from urllib.parse import urlencode
+
+import requests
+from django.conf import settings
 
 
 @dataclass
@@ -52,4 +56,97 @@ def get_platform_client(platform: str) -> BasePlatformClient:
     supported = {"tiktok", "amazon", "1688"}
     if platform not in supported:
         raise ValueError(f"Unsupported platform: {platform}")
+    if platform == "tiktok":
+        return TikTokPlatformClient(platform=platform)
     return BasePlatformClient(platform=platform)
+
+
+@dataclass
+class TikTokPlatformClient(BasePlatformClient):
+    def _client_key(self) -> str:
+        return (getattr(settings, "TIKTOK_CLIENT_KEY", "") or "").strip()
+
+    def _client_secret(self) -> str:
+        return (getattr(settings, "TIKTOK_CLIENT_SECRET", "") or "").strip()
+
+    def _redirect_uri(self) -> str:
+        return (getattr(settings, "TIKTOK_REDIRECT_URI", "") or "").strip()
+
+    def _auth_base_url(self) -> str:
+        return (getattr(settings, "TIKTOK_AUTH_BASE_URL", "https://www.tiktok.com/v2/auth/authorize/") or "").strip()
+
+    def _api_base_url(self) -> str:
+        return (getattr(settings, "TIKTOK_API_BASE_URL", "https://open.tiktokapis.com/v2/") or "").strip()
+
+    def _scopes(self) -> str:
+        return (
+            getattr(settings, "TIKTOK_SCOPES", "user.info.basic,video.list")
+            or "user.info.basic,video.list"
+        ).strip()
+
+    def _validate_config(self):
+        if not self._client_key() or not self._client_secret() or not self._redirect_uri():
+            raise ValueError("TikTok OAuth config is incomplete. Please set TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET/TIKTOK_REDIRECT_URI")
+
+    def get_oauth_authorize_url(self, state: str):
+        self._validate_config()
+        query = urlencode(
+            {
+                "client_key": self._client_key(),
+                "redirect_uri": self._redirect_uri(),
+                "response_type": "code",
+                "scope": self._scopes(),
+                "state": state,
+            }
+        )
+        return f"{self._auth_base_url()}?{query}"
+
+    def exchange_code_for_token(self, code: str):
+        self._validate_config()
+        token_url = f"{self._api_base_url().rstrip('/')}/oauth/token/"
+        resp = requests.post(
+            token_url,
+            data={
+                "client_key": self._client_key(),
+                "client_secret": self._client_secret(),
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": self._redirect_uri(),
+            },
+            timeout=10,
+        )
+        payload = resp.json() if resp.content else {}
+        if resp.status_code >= 400 or payload.get("error"):
+            raise ValueError(payload.get("error_description") or payload.get("message") or "TikTok token exchange failed")
+
+        data = payload.get("data", payload)
+        open_id = data.get("open_id") or data.get("openid") or "default"
+        return {
+            "access_token": data["access_token"],
+            "refresh_token": data["refresh_token"],
+            "expires_in": int(data.get("expires_in", 7200)),
+            "account_id": open_id,
+        }
+
+    def refresh_token(self, refresh_token: str):
+        self._validate_config()
+        token_url = f"{self._api_base_url().rstrip('/')}/oauth/token/"
+        resp = requests.post(
+            token_url,
+            data={
+                "client_key": self._client_key(),
+                "client_secret": self._client_secret(),
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            timeout=10,
+        )
+        payload = resp.json() if resp.content else {}
+        if resp.status_code >= 400 or payload.get("error"):
+            raise ValueError(payload.get("error_description") or payload.get("message") or "TikTok refresh token failed")
+        data = payload.get("data", payload)
+        return {
+            "access_token": data["access_token"],
+            "refresh_token": data.get("refresh_token", refresh_token),
+            "expires_in": int(data.get("expires_in", 7200)),
+        }

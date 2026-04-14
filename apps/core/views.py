@@ -2,17 +2,22 @@ import uuid
 import hashlib
 import json
 import csv
-
+import time
+from datetime import timedelta
 from django.conf import settings
 from django.core.paginator import Paginator
 from django.core.cache import cache
 from django.db import connections
+from django.db import transaction
+from django.contrib.auth import get_user_model
+from django.utils import timezone
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.common.rbac_permissions import HasApiIntegratorRole
 from apps.common.responses import error_response, success_response
@@ -25,6 +30,11 @@ from .models import (
     LogisticsShipment,
     Order,
     PlatformToken,
+    UserPhoneBinding,
+    AccountDeletionLog,
+    SmsDispatchLog,
+    PhoneRebindAppeal,
+    DevicePhoneRelation,
     Product,
     ReplayAuditLog,
     Shop,
@@ -40,10 +50,30 @@ from .serializers import (
     OrderSerializer,
     OrderStatusUpdateSerializer,
     ProductSerializer,
+    SmsCodeSendSerializer,
+    SmsCodeVerifySerializer,
+    MobileAuthSerializer,
+    AccountDeleteSerializer,
+    PhoneRebindAppealSerializer,
+    SmsChannelStatsQuerySerializer,
     ShopSerializer,
 )
+from .sms_providers import SmsSendError
+from .sms_service import (
+    check_send_rate_limits,
+    create_captcha_challenge,
+    generate_sms_code,
+    get_client_ip,
+    check_and_incr_global_sms_limit,
+    is_device_blacklisted,
+    register_device_phone_attempt,
+    record_send_success,
+    store_sms_code,
+    verify_sms_code_with_lua,
+    validate_captcha_if_required,
+)
 from .services import build_expire_time
-from .tasks import execute_collection_task, refresh_platform_token, scheduled_inventory_sync
+from .tasks import execute_collection_task, refresh_platform_token, scheduled_inventory_sync, send_sms_with_failover
 
 
 def _request_hash(data):
@@ -52,8 +82,6 @@ def _request_hash(data):
 
 # RBAC：采集/同步/平台 Token 刷新等业务接口（Django Group + JWT）
 _BUSINESS_API_PERMISSIONS = [IsAuthenticated, HasApiIntegratorRole]
-
-
 class AuthLoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -372,6 +400,219 @@ class AuthMeView(APIView):
                 "is_superuser": user.is_superuser,
             }
         )
+
+
+class CaptchaChallengeView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="获取图形验证码（人机挑战）")
+    def get(self, request):
+        return success_response(data=create_captcha_challenge())
+
+
+class SmsCodeSendView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="发送短信验证码")
+    def post(self, request):
+        serializer = SmsCodeSendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        phone = serializer.validated_data["phone"]
+        country_code = serializer.validated_data.get("country_code", "86")
+        full_phone = f"+{country_code}{phone}"
+        voice = serializer.validated_data.get("voice", False)
+        captcha_err = validate_captcha_if_required(
+            serializer.validated_data.get("captcha_id") or None,
+            serializer.validated_data.get("captcha_answer"),
+        )
+        if captcha_err:
+            return error_response(message=captcha_err, status_code=400)
+
+        global_limit_err = check_and_incr_global_sms_limit()
+        if global_limit_err:
+            return error_response(message=global_limit_err, status_code=429, code=429)
+
+        client_ip = get_client_ip(request.META)
+        limit_err = check_send_rate_limits(full_phone, client_ip)
+        if limit_err:
+            return error_response(
+                message=limit_err,
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                code=429,
+            )
+
+        code = generate_sms_code()
+        message_type = "voice" if voice else "sms"
+        try:
+            send_result = send_sms_with_failover.delay(phone=full_phone, code=code, message_type=message_type).get(timeout=15)
+        except SmsSendError as exc:
+            return error_response(message=str(exc), status_code=400)
+        except Exception as exc:
+            return error_response(message=f"sms dispatch failed: {exc}", status_code=400)
+
+        store_sms_code(full_phone, code)
+        record_send_success(full_phone, client_ip)
+        ttl = int(getattr(settings, "SMS_CODE_TTL_SECONDS", 300))
+        return success_response(
+            {
+                "phone": full_phone,
+                "expires_in": ttl,
+                "provider": send_result.get("provider"),
+                "biz_id": send_result.get("biz_id"),
+                "message_type": message_type,
+                "code": code if settings.DEBUG else None,
+            }
+        )
+
+
+class SmsCodeVerifyView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="校验短信验证码")
+    def post(self, request):
+        serializer = SmsCodeVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        phone = serializer.validated_data["phone"]
+        code = serializer.validated_data["code"]
+        ok, err_msg, status_code = verify_sms_code_with_lua(phone, code)
+        if not ok:
+            return error_response(message=err_msg or "error", status_code=status_code, code=status_code)
+        return success_response({"verified": True, "phone": phone})
+
+
+def _mask_mobile(phone: str) -> str:
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) < 7:
+        return phone
+    return f"{digits[:3]}****{digits[-4:]}"
+
+
+class MobileAuthLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="手机号验证码登录/注册（合并）")
+    def post(self, request):
+        serializer = MobileAuthSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not serializer.validated_data["agreed_privacy"]:
+            return error_response(message="必须同意隐私协议", status_code=400)
+
+        country_code = serializer.validated_data["country_code"]
+        mobile = serializer.validated_data["mobile"]
+        full_phone = f"+{country_code}{mobile}"
+        device_id = request.headers.get("X-Device-ID", "").strip()
+        if device_id and is_device_blacklisted(device_id):
+            return error_response(message="设备已被风控拦截", status_code=403, code=403)
+
+        ok, err_msg, status_code = verify_sms_code_with_lua(full_phone, serializer.validated_data["code"])
+        if not ok:
+            return error_response(message=err_msg or "error", status_code=status_code, code=status_code)
+
+        User = get_user_model()
+        with transaction.atomic():
+            binding = UserPhoneBinding.objects.select_for_update().filter(
+                country_code=country_code,
+                phone_number=mobile,
+            ).first()
+            created = False
+            if binding:
+                user = binding.user
+            else:
+                ts = int(time.time())
+                username = f"u_{country_code}_{mobile}_{ts}"
+                user = User.objects.create_user(username=username)
+                UserPhoneBinding.objects.create(user=user, country_code=country_code, phone_number=mobile, is_primary=True)
+                created = True
+
+            if device_id:
+                DevicePhoneRelation.objects.create(device_id=device_id, phone=full_phone)
+                blacklisted = register_device_phone_attempt(device_id, full_phone)
+                if blacklisted:
+                    return error_response(message="设备触发风控限制", status_code=403, code=403)
+
+        token = RefreshToken.for_user(user)
+        return success_response(
+            {
+                "created": created,
+                "access": str(token.access_token),
+                "refresh": str(token),
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "mobile": _mask_mobile(full_phone),
+                    "country_code": country_code,
+                },
+            }
+        )
+
+
+class UserAccountDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(summary="账号注销（软删除）")
+    def delete(self, request):
+        serializer = AccountDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        binding = UserPhoneBinding.objects.filter(user=user).first()
+        if not binding:
+            return error_response(message="未绑定手机号", status_code=400)
+        full_phone = f"+{binding.country_code}{binding.phone_number}"
+        ok, err_msg, status_code = verify_sms_code_with_lua(full_phone, serializer.validated_data["code"])
+        if not ok:
+            return error_response(message=err_msg or "验证码错误", status_code=status_code, code=status_code)
+
+        old_username = user.username
+        anonymized = f"{old_username}__deleted__{int(time.time())}"
+        with transaction.atomic():
+            user.is_active = False
+            user.username = anonymized[:180]
+            user.save(update_fields=["is_active", "username"])
+            binding.phone_number = f"{binding.phone_number}__{int(time.time())}"[:20]
+            binding.save(update_fields=["phone_number", "updated_at"])
+            AccountDeletionLog.objects.create(
+                user=user,
+                original_username=old_username,
+                anonymized_username=user.username,
+                reason=serializer.validated_data.get("reason", ""),
+            )
+        return success_response({"deleted": True})
+
+
+class PhoneRebindAppealCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(summary="手机号换绑申诉")
+    def post(self, request):
+        serializer = PhoneRebindAppealSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        obj = serializer.save(user=request.user)
+        return success_response(PhoneRebindAppealSerializer(obj).data, status_code=201)
+
+
+class SmsChannelStatsView(APIView):
+    permission_classes = [IsAuthenticated, IsOpsAdmin]
+
+    @extend_schema(summary="短信通道到达率统计")
+    def get(self, request):
+        serializer = SmsChannelStatsQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        days = serializer.validated_data["days"]
+        since = timezone.now() - timedelta(days=days)
+        queryset = SmsDispatchLog.objects.filter(requested_at__gte=since)
+        stats = {}
+        for row in queryset:
+            p = row.provider
+            stats.setdefault(p, {"total": 0, "delivered": 0, "failed": 0})
+            stats[p]["total"] += 1
+            if row.status == SmsDispatchLog.STATUS_DELIVERED:
+                stats[p]["delivered"] += 1
+            elif row.status == SmsDispatchLog.STATUS_FAILED:
+                stats[p]["failed"] += 1
+        for provider, payload in stats.items():
+            total = payload["total"] or 1
+            payload["reach_rate"] = round(payload["delivered"] / total, 4)
+        return success_response({"days": days, "channels": stats})
 
 
 class GoodsListCreateView(APIView):

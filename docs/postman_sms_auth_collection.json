@@ -1,0 +1,256 @@
+{
+  "info": {
+    "_postman_id": "f8c3f8ef-5f57-4f6f-8fd2-9f5a2dd5c9b2",
+    "name": "Backend SMS Auth & Risk Control",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "短信登录与风控接口联调集合。"
+  },
+  "item": [
+    {
+      "name": "1. 发送验证码",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Device-ID",
+            "value": "{{device_id}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"{{mobile}}\",\n  \"country_code\": \"{{country_code}}\",\n  \"voice\": false\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/sms/send-code",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "sms",
+            "send-code"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json && json.data && json.data.code) {",
+              "  pm.collectionVariables.set('sms_code', json.data.code);",
+              "}",
+              "if (json && json.data && json.data.phone) {",
+              "  pm.collectionVariables.set('full_phone', json.data.phone);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. 验证码登录/注册",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Device-ID",
+            "value": "{{device_id}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"country_code\": \"{{country_code}}\",\n  \"code\": \"{{sms_code}}\",\n  \"agreed_privacy\": true\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/mobile/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "mobile",
+            "login"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json && json.data && json.data.access) {",
+              "  pm.collectionVariables.set('access_token', json.data.access);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. 再发验证码（注销用）",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Device-ID",
+            "value": "{{device_id}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"{{mobile}}\",\n  \"country_code\": \"{{country_code}}\",\n  \"voice\": false\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/sms/send-code",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "sms",
+            "send-code"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json && json.data && json.data.code) {",
+              "  pm.collectionVariables.set('delete_sms_code', json.data.code);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. 账号注销（软删除）",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"{{delete_sms_code}}\",\n  \"reason\": \"postman-qa\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/user/account/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "user",
+            "account",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "5. 短信通道统计（运维）",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/ops/sms/channel-stats?days=7",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ops",
+            "sms",
+            "channel-stats"
+          ],
+          "query": [
+            {
+              "key": "days",
+              "value": "7"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "mobile",
+      "value": "13800138000"
+    },
+    {
+      "key": "country_code",
+      "value": "86"
+    },
+    {
+      "key": "device_id",
+      "value": "qa-device-001"
+    },
+    {
+      "key": "sms_code",
+      "value": ""
+    },
+    {
+      "key": "delete_sms_code",
+      "value": ""
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "full_phone",
+      "value": ""
+    }
+  ]
+}

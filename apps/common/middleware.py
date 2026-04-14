@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+import logging
 
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -107,4 +108,80 @@ class IdempotencyMiddleware:
             pass
         finally:
             cache.delete(lock_key)
+        return response
+
+
+logger = logging.getLogger(__name__)
+
+
+class GlobalSmsCircuitBreakerMiddleware:
+    """
+    全站短信请求量熔断中间件。
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path.endswith("/auth/sms/send-code") and request.method == "POST":
+            limit = 10000
+            key = f"sms:global:{time.strftime('%Y%m%d%H')}"
+            count = cache.get(key, 0)
+            if count >= limit:
+                logger.error("sms global limit reached key=%s count=%s", key, count)
+                return JsonResponse({"code": 429, "message": "sms global rate limited", "data": None}, status=429)
+            if int(count) == 0:
+                cache.set(key, 1, timeout=3700)
+            else:
+                try:
+                    cache.incr(key)
+                except ValueError:
+                    cache.set(key, int(count) + 1, timeout=3700)
+        return self.get_response(request)
+
+
+class SensitiveDataMaskingMiddleware:
+    """
+    对非管理员请求自动脱敏响应字段。
+    """
+
+    SENSITIVE_FIELDS = ("mobile", "phone", "id_card")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def _mask(self, value):
+        if not isinstance(value, str) or len(value) < 7:
+            return value
+        return f"{value[:3]}****{value[-4:]}"
+
+    def _sanitize(self, payload):
+        if isinstance(payload, list):
+            return [self._sanitize(i) for i in payload]
+        if isinstance(payload, dict):
+            cleaned = {}
+            for k, v in payload.items():
+                lower = str(k).lower()
+                if any(s in lower for s in self.SENSITIVE_FIELDS):
+                    cleaned[k] = self._mask(v)
+                else:
+                    cleaned[k] = self._sanitize(v)
+            return cleaned
+        return payload
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        user = getattr(request, "user", None)
+        is_admin = bool(user and user.is_authenticated and (user.is_staff or user.is_superuser))
+        if is_admin:
+            return response
+        ctype = response.get("Content-Type", "")
+        if "application/json" not in ctype:
+            return response
+        try:
+            raw = json.loads(response.content.decode("utf-8"))
+            masked = self._sanitize(raw)
+            response.content = json.dumps(masked, ensure_ascii=False).encode("utf-8")
+        except Exception:
+            return response
         return response

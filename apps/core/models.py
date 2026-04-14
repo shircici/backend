@@ -1,5 +1,6 @@
 from django.core.cache import cache
 from django.db import models
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from .services import TokenCipherService
@@ -212,3 +213,90 @@ class LogisticsShipment(models.Model):
     latest_event = models.CharField(max_length=255, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+User = get_user_model()
+
+
+class UserPhoneBinding(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="phone_binding")
+    country_code = models.CharField(max_length=8, default="86", db_index=True)
+    phone_number = models.CharField(max_length=20, db_index=True)
+    is_primary = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("country_code", "phone_number")
+        indexes = [
+            models.Index(fields=["country_code", "phone_number"]),
+        ]
+
+    @property
+    def full_phone(self) -> str:
+        return f"+{self.country_code}{self.phone_number}"
+
+
+class AccountDeletionLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="deletion_logs")
+    original_username = models.CharField(max_length=150, db_index=True)
+    anonymized_username = models.CharField(max_length=180, db_index=True)
+    reason = models.CharField(max_length=255, default="", blank=True)
+    deleted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+class SmsDispatchLog(models.Model):
+    STATUS_SENDING = "sending"
+    STATUS_DELIVERED = "delivered"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = (
+        (STATUS_SENDING, "Sending"),
+        (STATUS_DELIVERED, "Delivered"),
+        (STATUS_FAILED, "Failed"),
+    )
+    TYPE_SMS = "sms"
+    TYPE_VOICE = "voice"
+    TYPE_CHOICES = (
+        (TYPE_SMS, "SMS"),
+        (TYPE_VOICE, "Voice"),
+    )
+    PROVIDER_ALIYUN = "aliyun"
+    PROVIDER_TENCENT = "tencent"
+    PROVIDER_MOCK = "mock"
+
+    phone = models.CharField(max_length=32, db_index=True)
+    message_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default=TYPE_SMS)
+    provider = models.CharField(max_length=32, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SENDING, db_index=True)
+    biz_id = models.CharField(max_length=128, default="", blank=True)
+    error_reason = models.CharField(max_length=255, default="", blank=True)
+    requested_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    delivered_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+
+class PhoneRebindAppeal(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="phone_rebind_appeals")
+    current_country_code = models.CharField(max_length=8, default="86")
+    current_phone_number = models.CharField(max_length=20)
+    requested_country_code = models.CharField(max_length=8)
+    requested_phone_number = models.CharField(max_length=20)
+    proof_material_urls = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    reviewer = models.CharField(max_length=128, default="", blank=True)
+    review_note = models.CharField(max_length=255, default="", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class DevicePhoneRelation(models.Model):
+    device_id = models.CharField(max_length=128, db_index=True)
+    phone = models.CharField(max_length=32, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)

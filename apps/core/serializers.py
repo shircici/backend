@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import (
+    PhoneRebindAppeal,
     CollectionTask,
     InventorySyncLog,
     LogisticsShipment,
@@ -8,6 +9,7 @@ from .models import (
     PlatformToken,
     Product,
     ProductVariant,
+    SmsDispatchLog,
     Shop,
     SyncRule,
 )
@@ -75,4 +77,53 @@ class OrderStatusUpdateSerializer(serializers.Serializer):
 class LogisticsShipmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = LogisticsShipment
+        fields = "__all__"
+
+
+class SmsCodeSendSerializer(serializers.Serializer):
+    phone = serializers.RegexField(regex=r"^\d{6,20}$")
+    country_code = serializers.RegexField(regex=r"^\d{1,4}$", required=False, default="86")
+    voice = serializers.BooleanField(required=False, default=False)
+    captcha_id = serializers.CharField(required=False, allow_blank=True)
+    captcha_answer = serializers.CharField(required=False, allow_blank=True)
+
+
+class SmsCodeVerifySerializer(serializers.Serializer):
+    phone = serializers.RegexField(regex=r"^\d{6,20}$")
+    code = serializers.RegexField(regex=r"^\d{4,6}$")
+
+
+class MobileAuthSerializer(serializers.Serializer):
+    mobile = serializers.RegexField(regex=r"^\d{6,20}$")
+    country_code = serializers.RegexField(regex=r"^\d{1,4}$", required=False, default="86")
+    code = serializers.RegexField(regex=r"^\d{4,6}$")
+    agreed_privacy = serializers.BooleanField(required=True)
+
+
+class AccountDeleteSerializer(serializers.Serializer):
+    code = serializers.RegexField(regex=r"^\d{4,6}$")
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=255)
+
+
+class CarrierOneTapSerializer(serializers.Serializer):
+    mobile = serializers.RegexField(regex=r"^\d{6,20}$")
+    country_code = serializers.RegexField(regex=r"^\d{1,4}$", required=False, default="86")
+    token = serializers.CharField()
+    carrier = serializers.CharField(required=False, allow_blank=True)
+
+
+class PhoneRebindAppealSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PhoneRebindAppeal
+        fields = "__all__"
+        read_only_fields = ["user", "status", "reviewer", "review_note", "created_at", "updated_at"]
+
+
+class SmsChannelStatsQuerySerializer(serializers.Serializer):
+    days = serializers.IntegerField(min_value=1, max_value=30, required=False, default=7)
+
+
+class SmsDispatchLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SmsDispatchLog
         fields = "__all__"

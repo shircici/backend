@@ -2,9 +2,14 @@ from django.urls import path
 
 from .views import (
     AuthCallbackView,
+    CaptchaChallengeView,
     AuthLoginView,
     AuthMeView,
     AuthRefreshView,
+    MobileAuthLoginView,
+    UserAccountDeleteView,
+    PhoneRebindAppealCreateView,
+    SmsChannelStatsView,
     CollectionTaskCreateView,
     CollectionTaskStatusView,
     DeadLetterListView,
@@ -23,12 +28,21 @@ from .views import (
     OpsWhoAmIView,
     ReplayAuditLogListView,
     ShopListView,
+    SmsCodeSendView,
+    SmsCodeVerifyView,
     SyncLogView,
     SyncTriggerView,
 )
 
 urlpatterns = [
     path("auth/me", AuthMeView.as_view(), name="auth-me"),
+    path("auth/captcha/challenge", CaptchaChallengeView.as_view(), name="auth-captcha-challenge"),
+    path("auth/sms/send-code", SmsCodeSendView.as_view(), name="auth-sms-send-code"),
+    path("auth/sms/verify-code", SmsCodeVerifyView.as_view(), name="auth-sms-verify-code"),
+    path("auth/mobile/login", MobileAuthLoginView.as_view(), name="auth-mobile-login"),
+    path("user/account/", UserAccountDeleteView.as_view(), name="user-account-delete"),
+    path("user/phone-rebind-appeals", PhoneRebindAppealCreateView.as_view(), name="user-phone-rebind-appeals"),
+    path("ops/sms/channel-stats", SmsChannelStatsView.as_view(), name="ops-sms-channel-stats"),
     path("auth/<str:platform>/login/", AuthLoginView.as_view(), name="auth-login"),
     path("auth/<str:platform>/callback/", AuthCallbackView.as_view(), name="auth-callback"),
     path("auth/<str:platform>/refresh/", AuthRefreshView.as_view(), name="auth-refresh"),

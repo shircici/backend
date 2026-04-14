@@ -17,6 +17,11 @@ PASSWORD_HASHERS = [
 ]
 
 CELERY_TASK_ALWAYS_EAGER = True
+# 单测不等待真实发送间隔
+SMS_SEND_MIN_INTERVAL_SECONDS = 0
+SMS_SEND_IP_MIN_INTERVAL_SECONDS = 0
+SMS_SEND_DAILY_LIMIT_PHONE = 0
+SMS_CAPTCHA_REQUIRED = False
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",

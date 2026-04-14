@@ -1,6 +1,7 @@
 from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters, generics, permissions
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.common.responses import success_response
@@ -8,18 +9,28 @@ from apps.common.responses import success_response
 from .models import Task
 from .pagination import TaskPagePagination
 from .permissions import IsOwner
-from .serializers import RegisterSerializer, TaskSerializer
+from .serializers import PhoneRegisterSerializer, TaskSerializer
 
 
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
-    serializer_class = RegisterSerializer
+    serializer_class = PhoneRegisterSerializer
     permission_classes = [permissions.AllowAny]
 
-    @extend_schema(summary="用户注册")
+    @extend_schema(summary="用户注册（手机号 + 短信验证码 + 密码）")
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        return success_response(data=response.data, message="register success", status_code=201)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        payload = {
+            "user": {"id": user.id, "username": user.username},
+            "tokens": {
+                "refresh": str(refresh),
+                "access": str(refresh.access_token),
+            },
+        }
+        return success_response(data=payload, message="register success", status_code=201)
 
 
 class LoginView(TokenObtainPairView):

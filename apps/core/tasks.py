@@ -2,11 +2,13 @@ from datetime import timedelta
 import logging
 
 from celery import shared_task
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CollectionTask, DeadLetterTask, InventorySyncLog, PlatformToken, Product, SyncRule
+from .models import CollectionTask, DeadLetterTask, InventorySyncLog, PlatformToken, Product, SmsDispatchLog, SyncRule
 from .platform_clients import get_platform_client
+from .sms_providers import SmsSendError, get_sms_provider
 from .services import build_expire_time
 
 logger = logging.getLogger(__name__)
@@ -132,3 +134,41 @@ def scheduled_inventory_sync():
     for rule in rules.iterator():
         sync_inventory_by_rule.delay(rule.id)
     return {"queued_rules": rules.count()}
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 2})
+def send_sms_with_failover(self, phone: str, code: str, message_type: str = "sms"):
+    providers = getattr(settings, "SMS_PROVIDER_CHAIN", ["aliyun", "tencent"])
+    if isinstance(providers, str):
+        providers = [p.strip() for p in providers.split(",") if p.strip()]
+    providers = providers or ["mock"]
+    dispatch = SmsDispatchLog.objects.create(
+        phone=phone,
+        message_type=message_type,
+        provider=providers[0],
+        status=SmsDispatchLog.STATUS_SENDING,
+    )
+    last_error = ""
+    for provider_name in providers:
+        try:
+            provider = get_sms_provider(provider_name)
+            result = provider.send_code(phone=phone, code=code, message_type=message_type)
+            dispatch.provider = result.provider
+            dispatch.biz_id = result.biz_id or ""
+            dispatch.status = SmsDispatchLog.STATUS_DELIVERED
+            dispatch.delivered_at = timezone.now()
+            dispatch.error_reason = ""
+            dispatch.save(update_fields=["provider", "biz_id", "status", "delivered_at", "error_reason"])
+            return {"ok": True, "provider": result.provider, "biz_id": result.biz_id}
+        except SmsSendError as exc:
+            last_error = str(exc)
+            logger.warning("sms provider failed provider=%s phone=%s err=%s", provider_name, phone, last_error)
+            continue
+        except Exception as exc:
+            last_error = str(exc)
+            logger.exception("sms provider runtime error provider=%s phone=%s err=%s", provider_name, phone, last_error)
+            continue
+    dispatch.status = SmsDispatchLog.STATUS_FAILED
+    dispatch.error_reason = last_error or "all providers failed"
+    dispatch.save(update_fields=["status", "error_reason"])
+    raise SmsSendError(dispatch.error_reason)
