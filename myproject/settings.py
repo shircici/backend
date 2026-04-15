@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from datetime import timedelta
 
+from kombu import Exchange, Queue
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-dev-key")
@@ -9,12 +11,14 @@ DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "channels",
     "rest_framework",
     "drf_spectacular",
     "corsheaders",
@@ -23,6 +27,7 @@ INSTALLED_APPS = [
     "apps.creator_mgt",
     "apps.sku_mgt",
     "apps.task_mgt",
+    "apps.selection_engine",
 ]
 
 MIDDLEWARE = [
@@ -109,6 +114,18 @@ CACHES = {
     }
 }
 
+# Django Channels（WebSocket）；默认使用独立 Redis DB，避免与 CACHES 键冲突
+CHANNEL_REDIS_URL = os.getenv("CHANNEL_REDIS_URL", "redis://replace_me_redis_host:6379/2")
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [CHANNEL_REDIS_URL],
+        },
+    },
+}
+ASGI_APPLICATION = "myproject.asgi.application"
+
 LANGUAGE_CODE = "zh-hans"
 TIME_ZONE = "Asia/Shanghai"
 USE_I18N = True
@@ -156,6 +173,14 @@ RBAC_API_INTEGRATOR_GROUPS = [
     for g in os.getenv("RBAC_API_INTEGRATOR_GROUPS", "api_integrator").split(",")
     if g.strip()
 ]
+# 选品决策算法引擎：Django Group 名称（与 create_rbac_groups 一致）
+RBAC_SELECTION_ENGINE_GROUPS = [
+    g.strip()
+    for g in os.getenv("RBAC_SELECTION_ENGINE_GROUPS", "selection_decision_maker,management").split(",")
+    if g.strip()
+]
+# 单次测算默认平台佣金率（0~1），前端未传 commission_rate 时使用
+SELECTION_DEFAULT_COMMISSION_RATE = os.getenv("SELECTION_DEFAULT_COMMISSION_RATE", "0.08")
 
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://replace_me_redis_host:6379/1")
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://replace_me_redis_host:6379/1")
@@ -174,6 +199,20 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.sku_mgt.tasks.export_sku_to_csv",
         "schedule": 86400,
     },
+}
+
+# Celery 队列：选品/达人测算走独立队列，便于扩容与限流
+_default_exchange = Exchange("default", type="direct")
+_selection_exchange = Exchange("selection", type="direct")
+CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_TASK_QUEUES = (
+    Queue("default", _default_exchange, routing_key="default"),
+    Queue("selection", _selection_exchange, routing_key="selection"),
+)
+CELERY_TASK_ROUTES = {
+    "apps.selection_engine.tasks.batch_calculate_influencer_roas": {"queue": "selection"},
+    "apps.selection_engine.tasks.calculate_single_influencer_roas": {"queue": "selection"},
+    "apps.selection_engine.tasks.finalize_influencer_batch": {"queue": "selection"},
 }
 
 FERNET_KEY = os.getenv("FERNET_KEY", "")

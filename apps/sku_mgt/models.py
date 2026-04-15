@@ -45,6 +45,13 @@ class Sku(models.Model):
     product_name = models.CharField(max_length=255, db_index=True)
     category_id = models.IntegerField(db_index=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="采购/供货成本；为空时选品引擎可回退为售价比例估算",
+    )
     stock = models.IntegerField(default=0)
     status = models.SmallIntegerField(default=1, db_index=True)  # 1:on sale, 0:off shelf
     is_deleted = models.BooleanField(default=False, db_index=True)

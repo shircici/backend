@@ -15,6 +15,7 @@ class SkuSerializer(serializers.ModelSerializer):
             "product_name",
             "category_id",
             "price",
+            "cost",
             "stock",
             "status",
             "version",
@@ -30,6 +31,7 @@ class SkuBulkCreateItemSerializer(serializers.Serializer):
     product_name = serializers.CharField(max_length=255)
     category_id = serializers.IntegerField()
     price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    cost = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True)
     stock = serializers.IntegerField(min_value=0)
     status = serializers.IntegerField(required=False, default=1)
 
@@ -48,9 +50,10 @@ class SkuBulkUpdateSerializer(serializers.Serializer):
     stock = serializers.IntegerField(required=False, min_value=0)
     status = serializers.IntegerField(required=False)
     price = serializers.DecimalField(required=False, max_digits=10, decimal_places=2)
+    cost = serializers.DecimalField(required=False, max_digits=10, decimal_places=2, allow_null=True)
 
     def validate(self, attrs):
-        updatable_fields = {"stock", "status", "price"}
+        updatable_fields = {"stock", "status", "price", "cost"}
         if not any(field in attrs for field in updatable_fields):
             raise serializers.ValidationError("At least one updatable field is required.")
         return attrs

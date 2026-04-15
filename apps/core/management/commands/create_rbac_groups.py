@@ -6,7 +6,12 @@ class Command(BaseCommand):
     help = "Create Django Groups used for RBAC (idempotent)."
 
     def handle(self, *args, **options):
-        names = ["api_integrator", "ops_admin"]
+        names = [
+            "api_integrator",
+            "ops_admin",
+            "selection_decision_maker",
+            "management",
+        ]
         for name in names:
             _, created = Group.objects.get_or_create(name=name)
             if created:

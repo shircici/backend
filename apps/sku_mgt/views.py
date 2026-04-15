@@ -34,6 +34,7 @@ class SkuDetailView(APIView):
                     "product_name",
                     "category_id",
                     "price",
+                    "cost",
                     "stock",
                     "status",
                     "version",
@@ -57,7 +58,16 @@ class SkuListView(APIView):
     @extend_schema(summary="SKU 游标分页查询（过滤 + 排序）")
     def get(self, request):
         queryset = Sku.objects.filter(is_deleted=False).only(
-            "id", "sku_code", "product_id", "product_name", "category_id", "price", "stock", "status", "updated_at"
+            "id",
+            "sku_code",
+            "product_id",
+            "product_name",
+            "category_id",
+            "price",
+            "cost",
+            "stock",
+            "status",
+            "updated_at",
         )
         category_id = request.query_params.get("category_id")
         status_value = request.query_params.get("status")
@@ -103,6 +113,7 @@ class SkuBulkCreateView(APIView):
                         product_name=item["product_name"],
                         category_id=item["category_id"],
                         price=item["price"],
+                        cost=item.get("cost"),
                         stock=item["stock"],
                         status=item.get("status", 1),
                     )
@@ -159,7 +170,7 @@ class SkuSearchView(APIView):
             Sku.objects.filter(is_deleted=False)
             # Current fallback query; switch to FULLTEXT or ES for 10M+ in production.
             .filter(Q(sku_code__startswith=keyword) | Q(product_name__startswith=keyword))
-            .only("id", "sku_code", "product_name", "price", "stock", "updated_at")
+            .only("id", "sku_code", "product_name", "price", "cost", "stock", "updated_at")
             .order_by("-id")[:200]
         )
         data = SkuSerializer(queryset, many=True).data

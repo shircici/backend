@@ -18,4 +18,5 @@ urlpatterns = [
     path("api/", include("apps.creator_mgt.urls")),
     path("api/sku/", include("apps.sku_mgt.urls")),
     path("api/", include("apps.task_mgt.urls")),
+    path("api/", include("apps.selection_engine.urls")),
 ]

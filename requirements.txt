@@ -1,4 +1,7 @@
 django
+channels
+channels-redis
+daphne
 djangorestframework
 drf-spectacular
 celery

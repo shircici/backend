@@ -28,3 +28,10 @@ CACHES = {
         "LOCATION": "test-cache",
     }
 }
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
+ASGI_APPLICATION = "myproject.asgi.application"
