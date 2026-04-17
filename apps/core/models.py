@@ -171,27 +171,58 @@ class Shop(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class Order(models.Model):
+class BaseOrder(models.Model):
     STATUS_PENDING = "pending"
     STATUS_PAID = "paid"
     STATUS_SHIPPED = "shipped"
+    STATUS_SIGNED = "signed"
     STATUS_COMPLETED = "completed"
     STATUS_CANCELLED = "cancelled"
     STATUS_CHOICES = (
         (STATUS_PENDING, "Pending"),
         (STATUS_PAID, "Paid"),
         (STATUS_SHIPPED, "Shipped"),
+        (STATUS_SIGNED, "Signed"),
         (STATUS_COMPLETED, "Completed"),
         (STATUS_CANCELLED, "Cancelled"),
     )
 
     platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, db_index=True)
-    order_no = models.CharField(max_length=128, unique=True, db_index=True)
+    order_no = models.CharField(max_length=128, db_index=True)
     buyer_name = models.CharField(max_length=128, blank=True, default="")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    recipient_name = models.CharField(max_length=128, blank=True, default="")
+    recipient_phone = models.CharField(max_length=32, blank=True, default="")
+    shipping_address = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    class Meta:
+        abstract = True
+
+
+class Order(BaseOrder):
+    class Meta:
+        unique_together = ("platform", "order_no")
+        permissions = (
+            ("order_edit", "Can manually edit order address"),
+        )
+
+
+class PlatformOrder(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="platform_payloads")
+    platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, db_index=True)
+    platform_order_id = models.CharField(max_length=128, db_index=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    synced_at = models.DateTimeField(auto_now=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        unique_together = ("platform", "platform_order_id")
+        indexes = [
+            models.Index(fields=["order", "platform", "synced_at"]),
+        ]
 
 
 class LogisticsShipment(models.Model):
@@ -213,6 +244,23 @@ class LogisticsShipment(models.Model):
     latest_event = models.CharField(max_length=255, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class LogisticsRateCard(models.Model):
+    carrier = models.CharField(max_length=64, db_index=True)
+    destination_country = models.CharField(max_length=8, db_index=True)
+    base_weight_kg = models.DecimalField(max_digits=8, decimal_places=3, default=0.5)
+    base_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    additional_price_per_kg = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    currency = models.CharField(max_length=8, default="CNY")
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["carrier", "destination_country", "is_active"]),
+        ]
 
 
 User = get_user_model()

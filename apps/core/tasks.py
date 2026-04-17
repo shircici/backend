@@ -6,8 +6,18 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CollectionTask, DeadLetterTask, InventorySyncLog, PlatformToken, Product, SmsDispatchLog, SyncRule
-from .platform_clients import get_platform_client
+from .models import (
+    CollectionTask,
+    DeadLetterTask,
+    InventorySyncLog,
+    Order,
+    PlatformOrder,
+    PlatformToken,
+    Product,
+    SmsDispatchLog,
+    SyncRule,
+)
+from .platform_clients import PlatformRateLimitError, get_platform_client
 from .sms_providers import SmsSendError, get_sms_provider
 from .services import build_expire_time
 
@@ -172,3 +182,71 @@ def send_sms_with_failover(self, phone: str, code: str, message_type: str = "sms
     dispatch.error_reason = last_error or "all providers failed"
     dispatch.save(update_fields=["status", "error_reason"])
     raise SmsSendError(dispatch.error_reason)
+
+
+def _extract_tiktok_order_defaults(raw_order: dict):
+    amount = raw_order.get("payment_total") or raw_order.get("order_amount") or 0
+    buyer_name = raw_order.get("buyer_name") or raw_order.get("buyer", {}).get("name") or ""
+    status_value = str(raw_order.get("status") or Order.STATUS_PENDING).lower()
+    allowed_status = {item[0] for item in Order.STATUS_CHOICES}
+    if status_value not in allowed_status:
+        status_value = Order.STATUS_PENDING
+    return {
+        "buyer_name": buyer_name,
+        "status": status_value,
+        "amount": amount,
+        "recipient_name": raw_order.get("recipient_name") or raw_order.get("address", {}).get("name") or "",
+        "recipient_phone": raw_order.get("recipient_phone") or raw_order.get("address", {}).get("phone") or "",
+        "shipping_address": raw_order.get("address") or {},
+    }
+
+
+@shared_task(bind=True, max_retries=6, retry_backoff=True, retry_jitter=True)
+def poll_tiktok_orderlist(self, token_id: int, cursor: str = "", page_size: int = 50):
+    token_obj = PlatformToken.objects.get(id=token_id, platform="tiktok")
+    client = get_platform_client("tiktok")
+    try:
+        data = client.fetch_order_list(token_obj.access_token, page_size=page_size, cursor=cursor)
+    except PlatformRateLimitError as exc:
+        logger.warning("tiktok orderlist rate limit token_id=%s retry_after=%s", token_id, exc.retry_after)
+        raise self.retry(countdown=exc.retry_after, exc=exc)
+    orders = data.get("orders", [])
+    with transaction.atomic():
+        for row in orders:
+            platform_order_id = str(
+                row.get("order_id")
+                or row.get("platform_order_id")
+                or row.get("id")
+                or ""
+            ).strip()
+            if not platform_order_id:
+                continue
+            order_no = str(row.get("order_no") or platform_order_id)
+            order, _ = Order.objects.update_or_create(
+                platform="tiktok",
+                order_no=order_no,
+                defaults=_extract_tiktok_order_defaults(row),
+            )
+            PlatformOrder.objects.update_or_create(
+                platform="tiktok",
+                platform_order_id=platform_order_id,
+                defaults={
+                    "order": order,
+                    "raw_payload": row,
+                },
+            )
+    return {
+        "token_id": token_id,
+        "count": len(orders),
+        "next_cursor": data.get("next_cursor", ""),
+        "has_more": data.get("has_more", False),
+    }
+
+
+@shared_task
+def schedule_tiktok_order_polling():
+    tokens = PlatformToken.objects.filter(platform="tiktok")
+    page_size = int(getattr(settings, "TIKTOK_ORDERLIST_PAGE_SIZE", 50))
+    for token_obj in tokens.iterator():
+        poll_tiktok_orderlist.delay(token_obj.id, cursor="", page_size=page_size)
+    return {"queued_tokens": tokens.count()}

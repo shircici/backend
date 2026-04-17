@@ -186,6 +186,12 @@ CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://replace_me_redis_host:6379/1
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://replace_me_redis_host:6379/1")
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "False").lower() == "true"
+TIKTOK_ORDER_POLL_MINUTES = int(os.getenv("TIKTOK_ORDER_POLL_MINUTES", "20"))
+if TIKTOK_ORDER_POLL_MINUTES < 10:
+    TIKTOK_ORDER_POLL_MINUTES = 10
+if TIKTOK_ORDER_POLL_MINUTES > 30:
+    TIKTOK_ORDER_POLL_MINUTES = 30
+TIKTOK_ORDERLIST_PAGE_SIZE = int(os.getenv("TIKTOK_ORDERLIST_PAGE_SIZE", "50"))
 CELERY_BEAT_SCHEDULE = {
     "refresh-platform-tokens-every-10-min": {
         "task": "apps.core.tasks.refresh_expiring_tokens",
@@ -198,6 +204,10 @@ CELERY_BEAT_SCHEDULE = {
     "daily-sku-export": {
         "task": "apps.sku_mgt.tasks.export_sku_to_csv",
         "schedule": 86400,
+    },
+    "poll-tiktok-orders": {
+        "task": "apps.core.tasks.schedule_tiktok_order_polling",
+        "schedule": TIKTOK_ORDER_POLL_MINUTES * 60,
     },
 }
 
@@ -251,6 +261,15 @@ TIKTOK_REDIRECT_URI = os.getenv("TIKTOK_REDIRECT_URI", "")
 TIKTOK_SCOPES = os.getenv("TIKTOK_SCOPES", "user.info.basic,video.list")
 TIKTOK_AUTH_BASE_URL = os.getenv("TIKTOK_AUTH_BASE_URL", "https://www.tiktok.com/v2/auth/authorize/")
 TIKTOK_API_BASE_URL = os.getenv("TIKTOK_API_BASE_URL", "https://open.tiktokapis.com/v2/")
+
+# 物流聚合（17Track / 快递100）
+LOGISTICS_AGGREGATOR_PROVIDER = os.getenv("LOGISTICS_AGGREGATOR_PROVIDER", "17track")
+LOGISTICS_WEBHOOK_TOKEN = os.getenv("LOGISTICS_WEBHOOK_TOKEN", "")
+LOGISTICS_VOLUME_DIVISOR = int(os.getenv("LOGISTICS_VOLUME_DIVISOR", "6000"))
+TRACK17_API_KEY = os.getenv("TRACK17_API_KEY", "")
+TRACK17_API_BASE_URL = os.getenv("TRACK17_API_BASE_URL", "https://api.17track.net/track/v2")
+KUAIDI100_API_KEY = os.getenv("KUAIDI100_API_KEY", "")
+KUAIDI100_TRACK_URL = os.getenv("KUAIDI100_TRACK_URL", "https://poll.kuaidi100.com/poll/query.do")
 
 # 开发服务端口（文档约定；runserver 命令行可覆盖）
 DJANGO_RUNSERVER_PORT = os.getenv("DJANGO_RUNSERVER_PORT", "8000")

@@ -27,6 +27,7 @@ from .models import (
     CollectionTask,
     DeadLetterTask,
     InventorySyncLog,
+    LogisticsRateCard,
     LogisticsShipment,
     Order,
     PlatformToken,
@@ -41,13 +42,17 @@ from .models import (
     SyncRule,
 )
 from .platform_clients import get_platform_client
-from .permissions import IsOpsAdmin
+from .logistics_clients import get_logistics_aggregator_client
+from .permissions import HasOrderEditPermission, IsOpsAdmin
 from .serializers import (
     CollectionTaskCreateSerializer,
     CollectionTaskSerializer,
     InventorySyncLogSerializer,
+    FreightEstimateQuerySerializer,
     LogisticsShipmentSerializer,
+    LogisticsRateCardSerializer,
     OrderSerializer,
+    OrderAddressUpdateSerializer,
     OrderStatusUpdateSerializer,
     ProductSerializer,
     SmsCodeSendSerializer,
@@ -730,7 +735,7 @@ class OrdersListView(APIView):
         page_size = min(max(int(request.query_params.get("page_size", 20)), 1), 200)
         paginator = Paginator(queryset, page_size)
         current_page = paginator.get_page(page)
-        data = OrderSerializer(current_page.object_list, many=True).data
+        data = OrderSerializer(current_page.object_list, many=True, context={"request": request}).data
         return success_response(
             {
                 "count": paginator.count,
@@ -753,6 +758,26 @@ class OrderStatusUpdateView(APIView):
         obj.status = serializer.validated_data["status"]
         obj.save(update_fields=["status", "updated_at"])
         return success_response(OrderSerializer(obj).data)
+
+
+class OrderAddressUpdateView(APIView):
+    permission_classes = [IsAuthenticated, HasOrderEditPermission]
+
+    @extend_schema(summary="手动修改订单地址（需 order_edit 权限）")
+    def put(self, request, order_id):
+        obj = get_object_or_404(Order, id=order_id)
+        serializer = OrderAddressUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        update_fields = []
+        for field in ("recipient_name", "recipient_phone", "shipping_address"):
+            if field in payload:
+                setattr(obj, field, payload[field])
+                update_fields.append(field)
+        if not update_fields:
+            return error_response(message="至少传入一个地址字段", status_code=400)
+        obj.save(update_fields=update_fields + ["updated_at"])
+        return success_response(OrderSerializer(obj, context={"request": request}).data)
 
 
 class OrdersExportView(APIView):
@@ -785,13 +810,120 @@ class LogisticsTrackView(APIView):
     @extend_schema(summary="物流轨迹查询")
     def get(self, request, waybill):
         row = get_object_or_404(LogisticsShipment, waybill_no=waybill)
-        data = {
-            "waybill_no": row.waybill_no,
-            "carrier": row.carrier,
-            "status": row.status,
-            "events": [
-                {"time": row.updated_at, "desc": row.latest_event or "Shipment status updated"},
-                {"time": row.created_at, "desc": "Shipment created"},
-            ],
-        }
+        client = get_logistics_aggregator_client()
+        events = client.fetch_tracking_events(waybill_no=row.waybill_no, carrier=row.carrier)
+        if events:
+            latest = events[0]
+            latest_status = str(latest.get("status") or "").strip()
+            row.latest_event = latest_status or row.latest_event
+            delivered_markers = {"投递成功", "已签收", "signed", "delivered"}
+            normalized_marker = latest_status.lower()
+            is_delivered = latest_status in delivered_markers or normalized_marker in delivered_markers
+            if is_delivered:
+                row.status = LogisticsShipment.STATUS_DELIVERED
+                row.order.status = Order.STATUS_SIGNED
+                row.order.save(update_fields=["status", "updated_at"])
+                row.save(update_fields=["latest_event", "status", "updated_at"])
+            else:
+                row.save(update_fields=["latest_event", "updated_at"])
+        else:
+            events = [
+                {
+                    "time": row.updated_at.date().isoformat(),
+                    "status": row.latest_event or "运输中",
+                    "location": "",
+                }
+            ]
+        # 统一轨迹格式：[{"time":"2026-04-16","status":"已揽收","location":"深圳"}]
+        data = {"waybill_no": row.waybill_no, "carrier": row.carrier, "status": row.status, "tracks": events}
         return success_response(data)
+
+
+class LogisticsWebhookView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="物流平台 Webhook 回调")
+    def post(self, request):
+        expected_token = (getattr(settings, "LOGISTICS_WEBHOOK_TOKEN", "") or "").strip()
+        provided_token = (request.headers.get("X-Webhook-Token", "") or "").strip()
+        if expected_token and expected_token != provided_token:
+            return error_response(message="invalid webhook token", status_code=403, code=403)
+
+        waybill_no = str(request.data.get("waybill_no") or request.data.get("tracking_no") or "").strip()
+        if not waybill_no:
+            return error_response(message="waybill_no is required", status_code=400)
+        shipment = get_object_or_404(LogisticsShipment, waybill_no=waybill_no)
+        callback_status = str(request.data.get("status") or "").strip()
+        location = str(request.data.get("location") or "").strip()
+        event_time = str(request.data.get("time") or timezone.now().date().isoformat())
+        events = request.data.get("events") if isinstance(request.data.get("events"), list) else []
+        if events:
+            top_event = events[0] or {}
+            callback_status = str(top_event.get("status") or callback_status).strip()
+            location = str(top_event.get("location") or location).strip()
+            event_time = str(top_event.get("time") or event_time).strip()
+
+        delivered_markers = {"投递成功", "已签收", "signed", "delivered"}
+        normalized_marker = callback_status.lower()
+        is_delivered = callback_status in delivered_markers or normalized_marker in delivered_markers
+
+        with transaction.atomic():
+            shipment.latest_event = f"{event_time} {callback_status} {location}".strip()
+            if is_delivered:
+                shipment.status = LogisticsShipment.STATUS_DELIVERED
+            shipment.save(update_fields=["latest_event", "status", "updated_at"])
+            if is_delivered:
+                shipment.order.status = Order.STATUS_SIGNED
+                shipment.order.save(update_fields=["status", "updated_at"])
+        return success_response({"ok": True, "delivered": is_delivered, "order_id": shipment.order_id})
+
+
+class FreightEstimateView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="物流运费预估（体积重+目的地）")
+    def post(self, request):
+        serializer = FreightEstimateQuerySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        divisor = int(getattr(settings, "LOGISTICS_VOLUME_DIVISOR", 6000))
+        volume_weight = (payload["length_cm"] * payload["width_cm"] * payload["height_cm"]) / divisor
+        chargeable_weight = max(payload["actual_weight_kg"], volume_weight)
+        destination_country = str(payload["destination_country"]).upper()
+        carrier = (payload.get("carrier") or "").strip()
+
+        queryset = LogisticsRateCard.objects.filter(destination_country=destination_country, is_active=True)
+        if carrier:
+            queryset = queryset.filter(carrier=carrier)
+        cards = list(queryset.order_by("carrier"))
+        quotes = get_logistics_aggregator_client().estimate_quotes(
+            chargeable_weight_kg=chargeable_weight,
+            destination_country=destination_country,
+            carrier=carrier,
+        )
+        for item in quotes:
+            item.setdefault("source", "aggregator_api")
+        for card in cards:
+            extra_weight = max(chargeable_weight - card.base_weight_kg, 0)
+            estimated_price = card.base_price + (extra_weight * card.additional_price_per_kg)
+            quotes.append(
+                {
+                    "carrier": card.carrier,
+                    "destination_country": card.destination_country,
+                    "currency": card.currency,
+                    "estimated_price": round(float(estimated_price), 2),
+                    "source": "rate_card",
+                }
+            )
+        return success_response(
+            {
+                "actual_weight_kg": float(payload["actual_weight_kg"]),
+                "volume_weight_kg": round(float(volume_weight), 3),
+                "chargeable_weight_kg": round(float(chargeable_weight), 3),
+                "divisor": divisor,
+                "destination_country": destination_country,
+                "quotes": quotes,
+                "rate_cards": LogisticsRateCardSerializer(cards, many=True).data if cards else [],
+            }
+        )

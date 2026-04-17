@@ -4,6 +4,7 @@ from .models import (
     PhoneRebindAppeal,
     CollectionTask,
     InventorySyncLog,
+    LogisticsRateCard,
     LogisticsShipment,
     Order,
     PlatformToken,
@@ -65,6 +66,17 @@ class ShopSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    can_manual_edit_address = serializers.SerializerMethodField()
+
+    def get_can_manual_edit_address(self, obj):
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None):
+            return False
+        user = request.user
+        if not user.is_authenticated:
+            return False
+        return user.is_superuser or user.has_perm("core.order_edit")
+
     class Meta:
         model = Order
         fields = "__all__"
@@ -74,10 +86,39 @@ class OrderStatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s[0] for s in Order.STATUS_CHOICES])
 
 
+class OrderAddressUpdateSerializer(serializers.Serializer):
+    recipient_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    recipient_phone = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    shipping_address = serializers.JSONField(required=False)
+
+
 class LogisticsShipmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = LogisticsShipment
         fields = "__all__"
+
+
+class FreightEstimateSerializer(serializers.Serializer):
+    destination = serializers.CharField(max_length=64)
+    weight_kg = serializers.FloatField(min_value=0.01)
+    length_cm = serializers.FloatField(min_value=0.01)
+    width_cm = serializers.FloatField(min_value=0.01)
+    height_cm = serializers.FloatField(min_value=0.01)
+
+
+class LogisticsRateCardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LogisticsRateCard
+        fields = "__all__"
+
+
+class FreightEstimateQuerySerializer(serializers.Serializer):
+    length_cm = serializers.DecimalField(max_digits=10, decimal_places=2)
+    width_cm = serializers.DecimalField(max_digits=10, decimal_places=2)
+    height_cm = serializers.DecimalField(max_digits=10, decimal_places=2)
+    actual_weight_kg = serializers.DecimalField(max_digits=10, decimal_places=3)
+    destination_country = serializers.CharField(max_length=8)
+    carrier = serializers.CharField(required=False, allow_blank=True, max_length=64)
 
 
 class SmsCodeSendSerializer(serializers.Serializer):

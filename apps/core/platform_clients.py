@@ -6,6 +6,12 @@ import requests
 from django.conf import settings
 
 
+class PlatformRateLimitError(Exception):
+    def __init__(self, message: str, retry_after: int = 60):
+        super().__init__(message)
+        self.retry_after = max(int(retry_after or 1), 1)
+
+
 @dataclass
 class BasePlatformClient:
     platform: str
@@ -50,6 +56,9 @@ class BasePlatformClient:
             {"platform_product_id": "demo-1001", "stock": 88},
             {"platform_product_id": "demo-1002", "stock": 66},
         ]
+
+    def fetch_order_list(self, access_token: str, page_size: int = 50, cursor: str = ""):
+        return {"orders": [], "next_cursor": "", "has_more": False}
 
 
 def get_platform_client(platform: str) -> BasePlatformClient:
@@ -149,4 +158,28 @@ class TikTokPlatformClient(BasePlatformClient):
             "access_token": data["access_token"],
             "refresh_token": data.get("refresh_token", refresh_token),
             "expires_in": int(data.get("expires_in", 7200)),
+        }
+
+    def fetch_order_list(self, access_token: str, page_size: int = 50, cursor: str = ""):
+        self._validate_config()
+        api_url = f"{self._api_base_url().rstrip('/')}/order/list/"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = {"page_size": max(1, min(int(page_size or 50), 100))}
+        if cursor:
+            params["cursor"] = cursor
+        resp = requests.get(api_url, headers=headers, params=params, timeout=12)
+        payload = resp.json() if resp.content else {}
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "60")
+            raise PlatformRateLimitError("TikTok orderlist rate limited", retry_after=int(retry_after))
+        if resp.status_code >= 400:
+            raise ValueError(payload.get("message") or "TikTok orderlist failed")
+        data = payload.get("data", payload)
+        if payload.get("code") in {"rate_limited", "too_many_requests"}:
+            retry_after = data.get("retry_after", 60)
+            raise PlatformRateLimitError("TikTok orderlist rate limited", retry_after=int(retry_after))
+        return {
+            "orders": data.get("orders", []),
+            "next_cursor": data.get("next_cursor") or "",
+            "has_more": bool(data.get("has_more")),
         }
