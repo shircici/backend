@@ -11,6 +11,7 @@ from django.db import connections
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
@@ -29,6 +30,7 @@ from .models import (
     InventorySyncLog,
     LogisticsRateCard,
     LogisticsShipment,
+    LogisticsTrackingEvent,
     Order,
     PlatformToken,
     UserPhoneBinding,
@@ -850,33 +852,113 @@ class LogisticsWebhookView(APIView):
         if expected_token and expected_token != provided_token:
             return error_response(message="invalid webhook token", status_code=403, code=403)
 
-        waybill_no = str(request.data.get("waybill_no") or request.data.get("tracking_no") or "").strip()
+        payload = request.data if isinstance(request.data, dict) else {}
+
+        def _pick_waybill(data: dict) -> str:
+            for key in ("waybill_no", "tracking_no", "trackingNo", "tracking_number", "number"):
+                val = str(data.get(key) or "").strip()
+                if val:
+                    return val
+            data_list = data.get("data")
+            if isinstance(data_list, list) and data_list:
+                item = data_list[0] if isinstance(data_list[0], dict) else {}
+                for key in ("waybill_no", "tracking_no", "trackingNo", "tracking_number", "number"):
+                    val = str(item.get(key) or "").strip()
+                    if val:
+                        return val
+            return ""
+
+        waybill_no = _pick_waybill(payload)
         if not waybill_no:
             return error_response(message="waybill_no is required", status_code=400)
-        shipment = get_object_or_404(LogisticsShipment, waybill_no=waybill_no)
-        callback_status = str(request.data.get("status") or "").strip()
-        location = str(request.data.get("location") or "").strip()
-        event_time = str(request.data.get("time") or timezone.now().date().isoformat())
-        events = request.data.get("events") if isinstance(request.data.get("events"), list) else []
-        if events:
-            top_event = events[0] or {}
-            callback_status = str(top_event.get("status") or callback_status).strip()
-            location = str(top_event.get("location") or location).strip()
-            event_time = str(top_event.get("time") or event_time).strip()
+        try:
+            shipment = LogisticsShipment.objects.select_related("order").get(waybill_no=waybill_no)
+        except LogisticsShipment.DoesNotExist:
+            return success_response({"ok": True, "ignored": True, "reason": "unknown waybill_no"})
+
+        def _normalize_events(data: dict):
+            if isinstance(data.get("events"), list):
+                return [e for e in data.get("events") if isinstance(e, dict)]
+            data_list = data.get("data")
+            if isinstance(data_list, list) and data_list:
+                item = data_list[0] if isinstance(data_list[0], dict) else {}
+                track_info = item.get("track_info") if isinstance(item.get("track_info"), dict) else {}
+                tracking = track_info.get("tracking")
+                if isinstance(tracking, list):
+                    normalized = []
+                    for e in tracking:
+                        if not isinstance(e, dict):
+                            continue
+                        normalized.append(
+                            {
+                                "time": e.get("track_date") or e.get("time"),
+                                "status": e.get("status_description") or e.get("description") or e.get("status"),
+                                "location": e.get("location") or "",
+                            }
+                        )
+                    return normalized
+            top = {
+                "time": data.get("time"),
+                "status": data.get("status"),
+                "location": data.get("location"),
+            }
+            return [top]
+
+        events = _normalize_events(payload)
+        top_event = events[0] if events else {}
+        callback_status = str(top_event.get("status") or "").strip()
+        location = str(top_event.get("location") or "").strip()
+        event_time_raw = str(top_event.get("time") or timezone.now().isoformat()).strip()
+
+        def _parse_event_time(value: str):
+            v = (value or "").strip()
+            if not v:
+                return None
+            dt = parse_datetime(v)
+            if dt:
+                return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
+            d = parse_date(v[:10])
+            if d:
+                return timezone.make_aware(timezone.datetime(d.year, d.month, d.day, 0, 0, 0))
+            return None
 
         delivered_markers = {"投递成功", "已签收", "signed", "delivered"}
+        exception_markers = {"异常", "exception", "退回", "failed", "undelivered"}
         normalized_marker = callback_status.lower()
         is_delivered = callback_status in delivered_markers or normalized_marker in delivered_markers
+        is_exception = callback_status in exception_markers or normalized_marker in exception_markers
 
         with transaction.atomic():
-            shipment.latest_event = f"{event_time} {callback_status} {location}".strip()
+            for e in events[:50]:
+                status_text = str(e.get("status") or "").strip()
+                location_text = str(e.get("location") or "").strip()
+                time_raw = str(e.get("time") or "").strip() or event_time_raw
+                LogisticsTrackingEvent.objects.get_or_create(
+                    shipment=shipment,
+                    event_time_raw=time_raw[:64],
+                    status=status_text[:255],
+                    location=location_text[:255],
+                    source="webhook",
+                    defaults={
+                        "event_time": _parse_event_time(time_raw),
+                        "raw_payload": e if isinstance(e, dict) else {},
+                    },
+                )
+
+            shipment.latest_event = f"{event_time_raw[:32]} {callback_status} {location}".strip()
             if is_delivered:
                 shipment.status = LogisticsShipment.STATUS_DELIVERED
+            elif is_exception:
+                shipment.status = LogisticsShipment.STATUS_EXCEPTION
+            else:
+                shipment.status = LogisticsShipment.STATUS_IN_TRANSIT
             shipment.save(update_fields=["latest_event", "status", "updated_at"])
-            if is_delivered:
+
+            if is_delivered and shipment.order.status != Order.STATUS_SIGNED:
                 shipment.order.status = Order.STATUS_SIGNED
                 shipment.order.save(update_fields=["status", "updated_at"])
-        return success_response({"ok": True, "delivered": is_delivered, "order_id": shipment.order_id})
+
+        return success_response({"ok": True, "delivered": is_delivered, "exception": is_exception, "order_id": shipment.order_id})
 
 
 class FreightEstimateView(APIView):

@@ -15,6 +15,8 @@ urlpatterns = [
     path("redoc/", SpectacularRedocView.as_view(url_name="schema", **_SCHEMA_AUTH), name="redoc"),
     path("metrics", metrics_view, name="metrics"),
     path("api/", include("apps.core.urls")),
+    # v1：对外联调固定前缀（例如 17Track Webhook 回调）
+    path("v1/", include("apps.core.urls")),
     path("api/", include("apps.creator_mgt.urls")),
     path("api/sku/", include("apps.sku_mgt.urls")),
     path("api/", include("apps.task_mgt.urls")),

@@ -246,6 +246,28 @@ class LogisticsShipment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class LogisticsTrackingEvent(models.Model):
+    """
+    物流轨迹事件（来自 17Track Webhook 或主动拉取）。
+    做幂等去重：同一运单在同一时间点的相同描述/地点视为同一事件。
+    """
+
+    shipment = models.ForeignKey(LogisticsShipment, on_delete=models.CASCADE, related_name="tracking_events")
+    event_time = models.DateTimeField(null=True, blank=True, db_index=True)
+    event_time_raw = models.CharField(max_length=64, blank=True, default="")
+    status = models.CharField(max_length=255, blank=True, default="")
+    location = models.CharField(max_length=255, blank=True, default="")
+    raw_payload = models.JSONField(default=dict, blank=True)
+    source = models.CharField(max_length=32, default="webhook", db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["shipment", "event_time", "source"]),
+        ]
+        unique_together = ("shipment", "event_time_raw", "status", "location", "source")
+
+
 class LogisticsRateCard(models.Model):
     carrier = models.CharField(max_length=64, db_index=True)
     destination_country = models.CharField(max_length=8, db_index=True)
