@@ -13,6 +13,9 @@ env/
 .env.*
 !.env.example
 
+# 本机 MySQL（mysqld --initialize 数据目录，勿提交）
+.mysql_local/
+
 # Test/cache artifacts
 .pytest_cache/
 .mypy_cache/

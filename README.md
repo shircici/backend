@@ -31,7 +31,8 @@ copy .env.example .env
 ```
 
 关键变量：
-- `BACKEND_PUBLIC_URL`（OpenAPI servers，供前端配置 baseURL）
+- `BACKEND_PUBLIC_URL`（OpenAPI servers，供前端配置 baseURL；生产拓岳示例 `https://api.tuoyue-tech.com`，17Track Webhook 填 `https://api.tuoyue-tech.com/v1/logistics/webhook`）
+- `TRACK17_API_KEY` / `LOGISTICS_WEBHOOK_TOKEN`（17Track 出站与 Webhook 验签，见 `.env.example`）
 - `RBAC_ENFORCE` / `RBAC_API_INTEGRATOR_GROUPS`（生产建议 `RBAC_ENFORCE=true`）
 - `MYSQL_DATABASE` / `MYSQL_HOST` / `MYSQL_USER` / `MYSQL_PASSWORD`
 - `MYSQL_REPLICA_*`（读库，可先与主库一致）

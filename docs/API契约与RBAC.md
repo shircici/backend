@@ -9,6 +9,7 @@
    - 原始 Schema：`/api/schema/`
 3. **禁止**：仅通过微信/口头传递接口 JSON 作为契约；变更须先更新 Schema 并通知前端拉取新版本。
 4. **基地址配置**：在 `.env` 中设置 `BACKEND_PUBLIC_URL`（含协议与端口），OpenAPI `servers` 将展示该地址，便于前端 B 配置 `baseURL`。
+5. **生产拓岳域名（约定）**：`BACKEND_PUBLIC_URL=https://api.tuoyue-tech.com`。第三方 **Webhook**（如 17Track 小包跟踪推送）回调地址为：`https://api.tuoyue-tech.com/v1/logistics/webhook`（与路由 `v1/logistics/webhook` 一致；可选请求头 `X-Webhook-Token` 与 `LOGISTICS_WEBHOOK_TOKEN` 对齐）。
 
 ## 二、端口与环境约定（不写死在业务代码）
 

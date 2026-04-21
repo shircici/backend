@@ -1,0 +1,645 @@
+{
+  "summary": {
+    "database_vendor": "sqlite",
+    "total_cases": 79,
+    "callable_cases": 78,
+    "server_error_cases": 0,
+    "exception_cases": 1,
+    "callable_rate": 98.73
+  },
+  "results": [
+    {
+      "module": "公共",
+      "name": "OpenAPI Schema",
+      "method": "GET",
+      "path": "/api/schema/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "当前用户信息",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "图形验证码挑战",
+      "method": "GET",
+      "path": "/api/auth/captcha/challenge",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "发送短信验证码",
+      "method": "POST",
+      "path": "/api/auth/sms/send-code",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "校验短信验证码",
+      "method": "POST",
+      "path": "/api/auth/sms/verify-code",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "手机号登录",
+      "method": "POST",
+      "path": "/api/auth/mobile/login",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "第三方登录发起",
+      "method": "GET",
+      "path": "/api/auth/tiktok/login/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "第三方登录回调",
+      "method": "GET",
+      "path": "/api/auth/tiktok/callback/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "核心认证",
+      "name": "第三方令牌刷新",
+      "method": "POST",
+      "path": "/api/auth/tiktok/refresh/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "用户",
+      "name": "注销账户",
+      "method": "DELETE",
+      "path": "/api/user/account/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "用户",
+      "name": "手机号换绑申诉",
+      "method": "POST",
+      "path": "/api/user/phone-rebind-appeals",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "商品",
+      "name": "商品列表/创建",
+      "method": "GET",
+      "path": "/api/goods/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "商品",
+      "name": "商品列表/创建",
+      "method": "POST",
+      "path": "/api/goods/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "商品",
+      "name": "商品详情",
+      "method": "GET",
+      "path": "/api/goods/1",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "商品",
+      "name": "商品详情",
+      "method": "PUT",
+      "path": "/api/goods/1",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "商品",
+      "name": "商品详情",
+      "method": "PATCH",
+      "path": "/api/goods/1",
+      "status_code": 405,
+      "callable": true
+    },
+    {
+      "module": "商品",
+      "name": "商品详情",
+      "method": "DELETE",
+      "path": "/api/goods/1",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "店铺",
+      "name": "店铺列表",
+      "method": "GET",
+      "path": "/api/shops/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "库存",
+      "name": "库存预警",
+      "method": "GET",
+      "path": "/api/inventory/alerts",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "库存",
+      "name": "库存日志",
+      "method": "GET",
+      "path": "/api/inventory/logs",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "库存",
+      "name": "库存同步",
+      "method": "POST",
+      "path": "/api/inventory/sync",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "订单",
+      "name": "订单列表",
+      "method": "GET",
+      "path": "/api/orders/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "订单",
+      "name": "更新收货地址",
+      "method": "PATCH",
+      "path": "/api/orders/1/address",
+      "status_code": 405,
+      "callable": true
+    },
+    {
+      "module": "订单",
+      "name": "更新订单状态",
+      "method": "PATCH",
+      "path": "/api/orders/1/status",
+      "status_code": 405,
+      "callable": true
+    },
+    {
+      "module": "订单",
+      "name": "订单导出",
+      "method": "POST",
+      "path": "/api/orders/export",
+      "status_code": 405,
+      "callable": true
+    },
+    {
+      "module": "物流",
+      "name": "创建物流发运",
+      "method": "POST",
+      "path": "/api/logistics/shipments/",
+      "status_code": 405,
+      "callable": true
+    },
+    {
+      "module": "物流",
+      "name": "物流轨迹查询",
+      "method": "GET",
+      "path": "/api/logistics/track/WB001",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "物流",
+      "name": "物流Webhook接收",
+      "method": "POST",
+      "path": "/api/logistics/webhook",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "物流",
+      "name": "运费试算",
+      "method": "POST",
+      "path": "/api/logistics/freight-estimate",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "任务",
+      "name": "采集任务创建",
+      "method": "POST",
+      "path": "/api/tasks/collect/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "任务",
+      "name": "采集任务状态",
+      "method": "GET",
+      "path": "/api/tasks/1/status/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "同步",
+      "name": "触发同步",
+      "method": "POST",
+      "path": "/api/sync/trigger/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "同步",
+      "name": "同步日志",
+      "method": "GET",
+      "path": "/api/sync/log/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "运维",
+      "name": "短信通道统计",
+      "method": "GET",
+      "path": "/api/ops/sms/channel-stats",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "运维",
+      "name": "死信列表",
+      "method": "GET",
+      "path": "/api/ops/dead-letter/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "运维",
+      "name": "死信重放",
+      "method": "POST",
+      "path": "/api/ops/dead-letter/1/replay/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "运维",
+      "name": "重放审计日志",
+      "method": "GET",
+      "path": "/api/ops/replay-audit/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "运维",
+      "name": "当前运维身份",
+      "method": "GET",
+      "path": "/api/ops/whoami/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "健康检查",
+      "name": "服务健康检查",
+      "method": "GET",
+      "path": "/api/health/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "SKU",
+      "name": "SKU详情",
+      "method": "GET",
+      "path": "/api/sku/detail/SKU001/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "SKU",
+      "name": "SKU列表",
+      "method": "GET",
+      "path": "/api/sku/list/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "SKU",
+      "name": "SKU批量创建",
+      "method": "POST",
+      "path": "/api/sku/bulk-create/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "SKU",
+      "name": "SKU批量更新",
+      "method": "POST",
+      "path": "/api/sku/bulk-update/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "SKU",
+      "name": "SKU批量删除",
+      "method": "POST",
+      "path": "/api/sku/bulk-delete/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "SKU",
+      "name": "SKU搜索",
+      "method": "GET",
+      "path": "/api/sku/search/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "SKU",
+      "name": "SKU导出",
+      "method": "POST",
+      "path": "/api/sku/export/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "注册",
+      "method": "POST",
+      "path": "/api/auth/register/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "登录",
+      "method": "POST",
+      "path": "/api/auth/login/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "刷新Token",
+      "method": "POST",
+      "path": "/api/auth/refresh/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "任务列表/创建",
+      "method": "GET",
+      "path": "/api/tasks/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "任务列表/创建",
+      "method": "POST",
+      "path": "/api/tasks/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "任务详情编辑删除",
+      "method": "GET",
+      "path": "/api/tasks/1/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "任务详情编辑删除",
+      "method": "PUT",
+      "path": "/api/tasks/1/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "任务详情编辑删除",
+      "method": "PATCH",
+      "path": "/api/tasks/1/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "任务管理",
+      "name": "任务详情编辑删除",
+      "method": "DELETE",
+      "path": "/api/tasks/1/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "选品引擎",
+      "name": "单次计算",
+      "method": "POST",
+      "path": "/api/selection/calculate/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "选品引擎",
+      "name": "批量计算",
+      "method": "POST",
+      "path": "/api/selection/influencer-batch/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "选品引擎",
+      "name": "批量进度查询",
+      "method": "GET",
+      "path": "/api/selection/batch/batch001/progress/",
+      "status_code": null,
+      "callable": false,
+      "exception": "This backend does not support this feature"
+    },
+    {
+      "module": "选品引擎",
+      "name": "批量预览列表",
+      "method": "GET",
+      "path": "/api/selection/batch/batch001/preview/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "REST路由接口",
+      "method": "GET/POST/PUT/PATCH/DELETE",
+      "path": "/api/<router资源>/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "AI多语种话术",
+      "method": "POST",
+      "path": "/api/ai/multilingual-pitch/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "内容分析任务创建",
+      "method": "POST",
+      "path": "/api/ai/content-analysis/jobs/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "评论挖掘任务创建",
+      "method": "POST",
+      "path": "/api/ai/review-mining/jobs/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "AI任务状态",
+      "method": "GET",
+      "path": "/api/ai/jobs/1/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "导入平台创作者",
+      "method": "POST",
+      "path": "/api/creators/import/platform/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "TikTok授权登录",
+      "method": "GET",
+      "path": "/api/creators/auth/tiktok/login/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "TikTok授权回调",
+      "method": "GET",
+      "path": "/api/creators/auth/tiktok/callback/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "创作者搜索",
+      "method": "GET",
+      "path": "/api/creators/search/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "同步受众数据",
+      "method": "POST",
+      "path": "/api/creators/1/sync-audience/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "同步电商数据",
+      "method": "POST",
+      "path": "/api/creators/1/sync-ecom/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "发送邀约",
+      "method": "POST",
+      "path": "/api/invitations/1/send/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "创作者管理",
+      "name": "邀约历史",
+      "method": "GET",
+      "path": "/api/invitations/1/history/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "履约",
+      "name": "履约单发货",
+      "method": "POST",
+      "path": "/api/fulfillment-orders/1/dispatch/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "履约",
+      "name": "履约物流跟踪",
+      "method": "GET",
+      "path": "/api/fulfillment-orders/1/tracking/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "履约",
+      "name": "资产授权",
+      "method": "POST",
+      "path": "/api/fulfillment-assets/1/authorize/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "履约",
+      "name": "上传地址申请",
+      "method": "POST",
+      "path": "/api/assets/upload-url/",
+      "status_code": 200,
+      "callable": true
+    },
+    {
+      "module": "履约",
+      "name": "上传回调",
+      "method": "POST",
+      "path": "/api/assets/callback/",
+      "status_code": 400,
+      "callable": true
+    },
+    {
+      "module": "履约",
+      "name": "履约物流Webhook",
+      "method": "POST",
+      "path": "/api/webhooks/logistics/",
+      "status_code": 404,
+      "callable": true
+    },
+    {
+      "module": "看板",
+      "name": "创作者看板聚合",
+      "method": "GET",
+      "path": "/api/dashboard/creator-board/",
+      "status_code": 200,
+      "callable": true
+    }
+  ]
+}

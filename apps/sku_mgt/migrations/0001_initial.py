@@ -58,14 +58,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(model_name="sku", index=models.Index(fields=["product_id", "is_deleted", "id"], name="idx_sku_prod_del_id")),
         migrations.AddIndex(model_name="sku", index=models.Index(fields=["updated_at", "id"], name="idx_sku_upd_id")),
         migrations.AddIndex(model_name="sku", index=models.Index(fields=["is_deleted", "created_at", "id"], name="idx_sku_del_create_id")),
-        migrations.RunSQL(
-            sql=(
-                "ALTER TABLE sku "
-                "PARTITION BY RANGE (TO_DAYS(created_at)) ("
-                "PARTITION p202601 VALUES LESS THAN (TO_DAYS('2026-02-01')),"
-                "PARTITION p202602 VALUES LESS THAN (TO_DAYS('2026-03-01')),"
-                "PARTITION pmax VALUES LESS THAN MAXVALUE)"
-            ),
-            reverse_sql="ALTER TABLE sku REMOVE PARTITIONING",
-        ),
+        # 不在此处做 RANGE 分区：MySQL 要求分区键包含在主键中，而 Django 默认主键仅为 id。
+        # 若生产需要分区，应改为 (created_at, id) 复合主键或单独运维脚本建表。
     ]

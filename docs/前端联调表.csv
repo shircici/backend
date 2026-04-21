@@ -1,0 +1,74 @@
+﻿模块,接口名称,方法,路径,鉴权要求,RBAC/权限,请求参数要点,响应要点,联调状态,前端负责人,后端负责人,备注
+公共,OpenAPI Schema,GET,/api/schema/,否,无,无,OpenAPI JSON,待联调,,,契约唯一来源
+公共,Swagger UI,GET,/swagger/,否,无,无,在线文档页面,待联调,,,用于查看接口细节
+公共,ReDoc,GET,/redoc/,否,无,无,在线文档页面,待联调,,,备用文档
+核心认证,当前用户信息,GET,/api/auth/me,是,登录用户,Header: Authorization,用户基础信息,待联调,,,
+核心认证,图形验证码挑战,GET,/api/auth/captcha/challenge,否,无,可含场景参数,验证码挑战信息,待联调,,,
+核心认证,发送短信验证码,POST,/api/auth/sms/send-code,否,无,手机号、验证码信息,发送结果,待联调,,,
+核心认证,校验短信验证码,POST,/api/auth/sms/verify-code,否,无,手机号、验证码,校验结果,待联调,,,
+核心认证,手机号登录,POST,/api/auth/mobile/login,否,无,手机号、验证码,Token/会话信息,待联调,,,
+核心认证,第三方登录发起,GET,/api/auth/{platform}/login/,否,无,platform 路径参数,跳转/授权信息,待联调,,,平台如 tiktok
+核心认证,第三方登录回调,GET,/api/auth/{platform}/callback/,否,无,code/state,登录结果,待联调,,,
+核心认证,第三方令牌刷新,POST,/api/auth/{platform}/refresh/,是,登录用户,平台信息或刷新凭证,刷新结果,待联调,,,
+用户,注销账户,DELETE,/api/user/account/,是,登录用户,可选确认参数,操作结果,待联调,,,
+用户,手机号换绑申诉,POST,/api/user/phone-rebind-appeals,是,登录用户,申诉信息,工单/申诉结果,待联调,,,
+商品,商品列表/创建,"GET,POST",/api/goods/,是,登录用户,查询条件或商品字段,列表或创建结果,待联调,,,
+商品,商品详情,"GET,PUT,PATCH,DELETE",/api/goods/{goods_id},是,登录用户,goods_id 路径参数,商品详情/操作结果,待联调,,,
+店铺,店铺列表,GET,/api/shops/,是,登录用户,分页与筛选参数,店铺列表,待联调,,,
+库存,库存预警,GET,/api/inventory/alerts,是,登录用户,筛选参数,预警列表,待联调,,,
+库存,库存日志,GET,/api/inventory/logs,是,登录用户,筛选参数,日志列表,待联调,,,
+库存,库存同步,POST,/api/inventory/sync,是,api_integrator(生产建议),同步参数,触发结果,待联调,,,
+订单,订单列表,GET,/api/orders/,是,登录用户,分页、筛选,订单列表,待联调,,,
+订单,更新收货地址,PATCH,/api/orders/{order_id}/address,是,登录用户,order_id + 地址字段,更新结果,待联调,,,
+订单,更新订单状态,PATCH,/api/orders/{order_id}/status,是,登录用户,order_id + 状态字段,更新结果,待联调,,,
+订单,订单导出,POST,/api/orders/export,是,登录用户,导出筛选条件,导出任务结果,待联调,,,可能异步
+物流,创建物流发运,POST,/api/logistics/shipments/,是,api_integrator(生产建议),发运参数,面单/发运结果,待联调,,,
+物流,物流轨迹查询,GET,/api/logistics/track/{waybill},是,登录用户,waybill 路径参数,轨迹节点,待联调,,,
+物流,物流Webhook接收,POST,/api/logistics/webhook,否(建议签名),LOGISTICS_WEBHOOK_TOKEN,Webhook body + X-Webhook-Token,接收确认,待联调,,,第三方回调入口
+物流,运费试算,POST,/api/logistics/freight-estimate,是,登录用户,地址/商品/重量,运费结果,待联调,,,
+任务,采集任务创建,POST,/api/tasks/collect/,是,api_integrator(生产建议),采集参数,任务ID,待联调,,,
+任务,采集任务状态,GET,/api/tasks/{task_id}/status/,是,登录用户,task_id 路径参数,进度/状态,待联调,,,
+同步,触发同步,POST,/api/sync/trigger/,是,api_integrator(生产建议),同步类型等参数,触发结果,待联调,,,
+同步,同步日志,GET,/api/sync/log/,是,登录用户,筛选参数,日志列表,待联调,,,
+运维,短信通道统计,GET,/api/ops/sms/channel-stats,是,ops_admin,时间范围参数,统计结果,待联调,,,
+运维,死信列表,GET,/api/ops/dead-letter/,是,ops_admin,筛选参数,死信列表,待联调,,,
+运维,死信重放,POST,/api/ops/dead-letter/{dead_letter_id}/replay/,是,ops_admin,dead_letter_id,重放结果,待联调,,,
+运维,重放审计日志,GET,/api/ops/replay-audit/,是,ops_admin,筛选参数,审计日志列表,待联调,,,
+运维,当前运维身份,GET,/api/ops/whoami/,是,ops_admin,无,身份与权限信息,待联调,,,
+健康检查,服务健康检查,GET,/api/health/,否,无,无,服务状态,待联调,,,
+SKU,SKU详情,GET,/api/sku/detail/{sku_code}/,是,登录用户,sku_code,SKU详情,待联调,,,
+SKU,SKU列表,GET,/api/sku/list/,是,登录用户,分页、筛选、排序,SKU列表,待联调,,,
+SKU,SKU批量创建,POST,/api/sku/bulk-create/,是,api_integrator(生产建议),SKU数组,创建结果,待联调,,,
+SKU,SKU批量更新,POST,/api/sku/bulk-update/,是,api_integrator(生产建议),SKU更新数组,更新结果,待联调,,,
+SKU,SKU批量删除,POST,/api/sku/bulk-delete/,是,api_integrator(生产建议),SKU编码数组,删除结果,待联调,,,软删除
+SKU,SKU搜索,GET,/api/sku/search/,是,登录用户,keyword,搜索结果,待联调,,,
+SKU,SKU导出,POST,/api/sku/export/,是,登录用户,导出条件,导出任务信息,待联调,,,异步CSV
+任务管理,注册,POST,/api/auth/register/,否,无,账号信息,注册结果,待联调,,,task_mgt 模块
+任务管理,登录,POST,/api/auth/login/,否,无,账号凭证,Token,待联调,,,task_mgt 模块
+任务管理,刷新Token,POST,/api/auth/refresh/,否,无,refresh token,新token,待联调,,,task_mgt 模块
+任务管理,任务列表/创建,"GET,POST",/api/tasks/,是,登录用户,分页/任务字段,任务列表或创建结果,待联调,,,task_mgt 模块
+任务管理,任务详情编辑删除,"GET,PUT,PATCH,DELETE",/api/tasks/{id}/,是,登录用户,id + 任务字段,任务详情/操作结果,待联调,,,task_mgt 模块
+选品引擎,单次计算,POST,/api/selection/calculate/,是,登录用户,选品参数,计算结果,待联调,,,
+选品引擎,批量计算,POST,/api/selection/influencer-batch/,是,登录用户,批量参数,batch_id,待联调,,,
+选品引擎,批量进度查询,GET,/api/selection/batch/{batch_id}/progress/,是,登录用户,batch_id,进度信息,待联调,,,
+选品引擎,批量预览列表,GET,/api/selection/batch/{batch_id}/preview/,是,登录用户,batch_id + 分页,预览列表,待联调,,,
+创作者管理,REST路由接口,GET/POST/PUT/PATCH/DELETE,/api/<router资源>/,是,登录用户,见 Swagger 具体资源,标准分页/详情结构,待联调,,,creator_mgt router 自动生成
+创作者管理,AI多语种话术,POST,/api/ai/multilingual-pitch/,是,登录用户,文案生成参数,多语种内容,待联调,,,
+创作者管理,内容分析任务创建,POST,/api/ai/content-analysis/jobs/,是,登录用户,分析参数,job_id,待联调,,,
+创作者管理,评论挖掘任务创建,POST,/api/ai/review-mining/jobs/,是,登录用户,任务参数,job_id,待联调,,,
+创作者管理,AI任务状态,GET,/api/ai/jobs/{job_id}/,是,登录用户,job_id,任务状态与结果,待联调,,,
+创作者管理,导入平台创作者,POST,/api/creators/import/platform/,是,登录用户,平台导入参数,导入结果,待联调,,,
+创作者管理,TikTok授权登录,GET,/api/creators/auth/tiktok/login/,是,登录用户,无,授权跳转信息,待联调,,,
+创作者管理,TikTok授权回调,GET,/api/creators/auth/tiktok/callback/,否,无,code/state,绑定或登录结果,待联调,,,
+创作者管理,创作者搜索,GET,/api/creators/search/,是,登录用户,关键词、筛选,创作者列表,待联调,,,
+创作者管理,同步受众数据,POST,/api/creators/{creator_id}/sync-audience/,是,登录用户,creator_id,同步结果,待联调,,,
+创作者管理,同步电商数据,POST,/api/creators/{creator_id}/sync-ecom/,是,登录用户,creator_id,同步结果,待联调,,,
+创作者管理,发送邀约,POST,/api/invitations/{creator_id}/send/,是,登录用户,creator_id + 邀约参数,发送结果,待联调,,,
+创作者管理,邀约历史,GET,/api/invitations/{creator_id}/history/,是,登录用户,creator_id,历史记录,待联调,,,
+履约,履约单发货,POST,/api/fulfillment-orders/{order_id}/dispatch/,是,登录用户,order_id + 发货参数,发货结果,待联调,,,
+履约,履约物流跟踪,GET,/api/fulfillment-orders/{order_id}/tracking/,是,登录用户,order_id,物流轨迹,待联调,,,
+履约,资产授权,POST,/api/fulfillment-assets/{asset_id}/authorize/,是,登录用户,asset_id + 授权参数,授权结果,待联调,,,
+履约,上传地址申请,POST,/api/assets/upload-url/,是,登录用户,文件元数据,上传URL/凭证,待联调,,,
+履约,上传回调,POST,/api/assets/callback/,是,登录用户,上传完成事件,入库结果,待联调,,,
+履约,履约物流Webhook,POST,/api/webhooks/logistics/,否(建议签名),按配置验证,Webhook body,接收结果,待联调,,,
+看板,创作者看板聚合,GET,/api/dashboard/creator-board/,是,登录用户,时间范围等参数,聚合指标,待联调,,,

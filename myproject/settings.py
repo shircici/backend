@@ -2,9 +2,11 @@ import os
 from pathlib import Path
 from datetime import timedelta
 
+from dotenv import load_dotenv
 from kombu import Exchange, Queue
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-dev-key")
 DEBUG = os.getenv("DEBUG", "True").lower() == "true"
@@ -70,10 +72,10 @@ ASGI_APPLICATION = "myproject.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": os.getenv("MYSQL_DATABASE", "replace_me_db_name"),
-        "USER": os.getenv("MYSQL_USER", "replace_me_db_user"),
-        "PASSWORD": os.getenv("MYSQL_PASSWORD", "replace_me_db_password"),
-        "HOST": os.getenv("MYSQL_HOST", "replace_me_db_host"),
+        "NAME": os.getenv("MYSQL_DATABASE", "sku_db"),
+        "USER": os.getenv("MYSQL_USER", "backend"),
+        "PASSWORD": os.getenv("MYSQL_PASSWORD", "backend_dev_pass"),
+        "HOST": os.getenv("MYSQL_HOST", "127.0.0.1"),
         "PORT": os.getenv("MYSQL_PORT", "3306"),
         "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "120")),
         "OPTIONS": {
@@ -86,10 +88,10 @@ DATABASES = {
     },
     "read_replica": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": os.getenv("MYSQL_REPLICA_DATABASE", os.getenv("MYSQL_DATABASE", "replace_me_db_name")),
-        "USER": os.getenv("MYSQL_REPLICA_USER", os.getenv("MYSQL_USER", "replace_me_db_user")),
-        "PASSWORD": os.getenv("MYSQL_REPLICA_PASSWORD", os.getenv("MYSQL_PASSWORD", "replace_me_db_password")),
-        "HOST": os.getenv("MYSQL_REPLICA_HOST", os.getenv("MYSQL_HOST", "replace_me_db_host")),
+        "NAME": os.getenv("MYSQL_REPLICA_DATABASE", os.getenv("MYSQL_DATABASE", "sku_db")),
+        "USER": os.getenv("MYSQL_REPLICA_USER", os.getenv("MYSQL_USER", "backend")),
+        "PASSWORD": os.getenv("MYSQL_REPLICA_PASSWORD", os.getenv("MYSQL_PASSWORD", "backend_dev_pass")),
+        "HOST": os.getenv("MYSQL_REPLICA_HOST", os.getenv("MYSQL_HOST", "127.0.0.1")),
         "PORT": os.getenv("MYSQL_REPLICA_PORT", os.getenv("MYSQL_PORT", "3306")),
         "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "120")),
         "OPTIONS": {

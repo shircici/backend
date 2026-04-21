@@ -1,4 +1,5 @@
 django
+python-dotenv
 channels
 channels-redis
 daphne
