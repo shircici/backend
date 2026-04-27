@@ -5,6 +5,7 @@ import csv
 import time
 from typing import Any, Dict
 from datetime import timedelta
+import json
 from django.conf import settings
 from django.core.paginator import Paginator
 from django.core.cache import cache
@@ -446,6 +447,47 @@ class DemoAuthMeView(APIView):
         )
 
 
+class DemoAuthRefreshView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】刷新 Token（直通）")
+    def post(self, request):
+        return Response(
+            {
+                "code": 200,
+                "message": "刷新成功",
+                "data": {
+                    "access_token": "tuoyue_admin_token_2026_refreshed",
+                    "refresh_token": "refresh_token_string_next",
+                },
+            },
+            status=200,
+        )
+
+
+class DemoAuthRegisterView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】注册（直通）")
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        return Response(
+            {
+                "code": 200,
+                "message": "注册成功",
+                "data": {
+                    "user_id": 10001,
+                    "username": payload.get("username") or payload.get("phone") or "demo_user",
+                    "access_token": "tuoyue_register_token_2026",
+                    "refresh_token": "tuoyue_register_refresh_token_2026",
+                },
+            },
+            status=200,
+        )
+
+
 class DemoGoodsListView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -505,6 +547,30 @@ class DemoGoodsListView(APIView):
         return Response({"code": 200, "data": {"total": 3, "items": items}}, status=200)
 
 
+class DemoGoodsDetailView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】商品详情（直通）")
+    def get(self, request, goods_id: int):
+        return Response(
+            {
+                "code": 200,
+                "data": {
+                    "id": goods_id,
+                    "title": f"演示商品 #{goods_id}",
+                    "platform": "Amazon",
+                    "sku": f"DEMO-{goods_id}",
+                    "price": 19.99,
+                    "currency": "USD",
+                    "stock": 999,
+                    "status": "active",
+                },
+            },
+            status=200,
+        )
+
+
 class DemoGoodsListingSyncView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -555,6 +621,167 @@ class DemoAuthVerifySmsView(APIView):
     @extend_schema(summary="【演示】验证短信验证码")
     def post(self, request):
         return Response({"code": 200, "message": "验证码校验通过", "data": {"verified": True}}, status=200)
+
+
+class DemoSmsQueryView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】短信发送记录查询（直通）")
+    def get(self, request):
+        return Response(
+            {
+                "code": 200,
+                "message": "ok",
+                "data": {
+                    "total": 1,
+                    "items": [
+                        {
+                            "phone": "138****8888",
+                            "status": "delivered",
+                            "sent_at": "2026-04-27T13:00:00+08:00",
+                        }
+                    ],
+                },
+            },
+            status=200,
+        )
+
+
+class DemoCollectAuthView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】采集平台授权接口（直通）")
+    def post(self, request, platform: str):
+        return Response(
+            {
+                "code": 200,
+                "message": "授权操作成功",
+                "data": {"platform": platform, "authorized": True},
+            },
+            status=200,
+        )
+
+    @extend_schema(summary="【演示】采集平台授权查询/回调（直通）")
+    def get(self, request, platform: str):
+        return Response(
+            {
+                "code": 200,
+                "message": "ok",
+                "data": {"platform": platform, "authorized": True, "account": f"{platform}_demo_account"},
+            },
+            status=200,
+        )
+
+
+class DemoCollectTaskView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】采集任务接口（直通）")
+    def post(self, request, task_id: int | None = None):
+        return Response(
+            {
+                "code": 200,
+                "message": "任务操作成功",
+                "data": {"task_id": task_id or 1001, "status": "queued"},
+            },
+            status=200,
+        )
+
+    @extend_schema(summary="【演示】采集任务查询（直通）")
+    def get(self, request, task_id: int | None = None):
+        if task_id:
+            return Response(
+                {
+                    "code": 200,
+                    "message": "ok",
+                    "data": {"task_id": task_id, "status": "running"},
+                },
+                status=200,
+            )
+        return Response(
+            {
+                "code": 200,
+                "message": "ok",
+                "data": {"total": 1, "items": [{"task_id": 1001, "status": "running"}]},
+            },
+            status=200,
+        )
+
+    def delete(self, request, task_id: int):
+        return Response({"code": 200, "message": "任务删除成功", "data": {"task_id": task_id}}, status=200)
+
+
+class DemoAiExtendedView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】AI 扩展接口（直通）")
+    def post(self, request):
+        return Response(
+            {
+                "code": 200,
+                "message": "success",
+                "data": {
+                    "text": "demo output",
+                    "items": ["demo-1", "demo-2"],
+                    "image_url": "https://img.tuoyue-tech.shop/demo/ai/generated.png",
+                },
+            },
+            status=200,
+        )
+
+
+class DemoOrdersView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, order_id: int | None = None):
+        if order_id is not None:
+            return Response({"code": 200, "data": {"id": order_id, "status": "pending"}}, status=200)
+        return Response({"code": 200, "data": {"total": 1, "items": [{"id": 1, "status": "pending"}]}}, status=200)
+
+    def post(self, request, order_id: int | None = None, action: str | None = None):
+        return Response(
+            {"code": 200, "message": "订单操作成功", "data": {"id": order_id or 1, "action": action or "create"}},
+            status=200,
+        )
+
+
+class DemoOrdersStatsView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({"code": 200, "data": {"total": 1, "pending": 1, "shipped": 0}}, status=200)
+
+
+class DemoInventoryView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, sku: str | None = None):
+        if sku:
+            return Response({"code": 200, "data": {"sku": sku, "stock": 100}}, status=200)
+        return Response({"code": 200, "data": {"total": 1, "items": [{"sku": "DEMO-SKU", "stock": 100}]}}, status=200)
+
+    def post(self, request):
+        return Response({"code": 200, "message": "库存操作成功", "data": {"ok": True}}, status=200)
+
+
+class DemoLogisticsView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, waybill: str | None = None):
+        if waybill:
+            return Response({"code": 200, "data": {"waybill": waybill, "status": "in_transit"}}, status=200)
+        return Response({"code": 200, "data": {"total": 1, "items": [{"waybill": "WB001", "status": "in_transit"}]}}, status=200)
+
+    def post(self, request):
+        return Response({"code": 200, "message": "物流操作成功", "data": {"ok": True}}, status=200)
 
 
 class DemoCollect1688SingleView(APIView):
@@ -620,6 +847,27 @@ class AiProxyView(APIView):
 
     @extend_schema(summary="AI 中枢代理转发（失败兜底，永不 502）")
     def post(self, request):
+        # region agent log
+        try:
+            with open("debug-12656f.log", "a", encoding="utf-8") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "12656f",
+                            "runId": "pre-fix",
+                            "hypothesisId": "H3",
+                            "location": "apps/core/views.py:AiProxyView.post",
+                            "message": "ai proxy request enter",
+                            "data": {"path": request.path},
+                            "timestamp": int(time.time() * 1000),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # endregion
         target_url = "https://api.tuoyue-tech.shop"
         api_key = getattr(settings, "TUOYUE_NEW_API_AUTHORIZATION", "")
         payload = request.data if isinstance(request.data, dict) else {}
@@ -629,6 +877,27 @@ class AiProxyView(APIView):
 
         try:
             resp = requests.post(target_url, json=payload, headers=headers, timeout=10)
+            # region agent log
+            try:
+                with open("debug-12656f.log", "a", encoding="utf-8") as f:
+                    f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "12656f",
+                                "runId": "pre-fix",
+                                "hypothesisId": "H3",
+                                "location": "apps/core/views.py:AiProxyView.post",
+                                "message": "ai proxy upstream response",
+                                "data": {"status_code": resp.status_code},
+                                "timestamp": int(time.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # endregion
             if resp.status_code >= 500:
                 return Response({"code": 200, "data": _ai_fallback_copy(), "message": "fallback"}, status=200)
             try:

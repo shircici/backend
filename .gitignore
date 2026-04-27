@@ -28,6 +28,12 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Local DB / exports / archives / logs
+db.sqlite3
+*.log
+*.tar
+exports/
+
 # Nested repositories (do not commit as submodules)
 backend/
 backendv1/

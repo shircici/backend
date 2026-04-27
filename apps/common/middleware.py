@@ -51,17 +51,24 @@ class SimpleRateLimitMiddleware:
         if request.method in self.WRITE_METHODS:
             ip = request.META.get("REMOTE_ADDR", "unknown")
             key = f"ratelimit:{ip}:{request.path}"
-            count = cache.get(key, 0)
+            try:
+                count = cache.get(key, 0)
+            except Exception:
+                logger.warning("rate limit cache unavailable, fail-open path=%s", request.path)
+                return self.get_response(request)
             limit = 120  # 120 writes / 60s / ip / path
             if count >= limit:
                 return JsonResponse(
                     {"code": 429, "message": "too many requests", "data": None},
                     status=429,
                 )
-            if count == 0:
-                cache.set(key, 1, timeout=60)
-            else:
-                cache.incr(key)
+            try:
+                if count == 0:
+                    cache.set(key, 1, timeout=60)
+                else:
+                    cache.incr(key)
+            except Exception:
+                logger.warning("rate limit cache write unavailable, fail-open path=%s", request.path)
         return self.get_response(request)
 
 
@@ -87,15 +94,26 @@ class IdempotencyMiddleware:
         base_key = f"idempotency:{request.path}:{idem_key}"
         lock_key = f"{base_key}:lock"
         data_key = f"{base_key}:response"
-        cached = cache.get(data_key)
+        try:
+            cached = cache.get(data_key)
+        except Exception:
+            logger.warning("idempotency cache unavailable, bypass path=%s", request.path)
+            return self.get_response(request)
         if cached:
             return JsonResponse(cached["body"], status=cached["status"])
 
         # Lock for concurrent duplicate requests.
-        got_lock = cache.add(lock_key, str(time.time()), timeout=30)
+        try:
+            got_lock = cache.add(lock_key, str(time.time()), timeout=30)
+        except Exception:
+            logger.warning("idempotency lock cache unavailable, bypass path=%s", request.path)
+            return self.get_response(request)
         if not got_lock:
             for _ in range(5):
-                cached = cache.get(data_key)
+                try:
+                    cached = cache.get(data_key)
+                except Exception:
+                    cached = None
                 if cached:
                     return JsonResponse(cached["body"], status=cached["status"])
                 time.sleep(0.05)
@@ -107,7 +125,10 @@ class IdempotencyMiddleware:
         except Exception:
             pass
         finally:
-            cache.delete(lock_key)
+            try:
+                cache.delete(lock_key)
+            except Exception:
+                pass
         return response
 
 
@@ -126,17 +147,26 @@ class GlobalSmsCircuitBreakerMiddleware:
         if request.path.endswith("/auth/sms/send-code") and request.method == "POST":
             limit = 10000
             key = f"sms:global:{time.strftime('%Y%m%d%H')}"
-            count = cache.get(key, 0)
+            try:
+                count = cache.get(key, 0)
+            except Exception:
+                logger.warning("sms breaker cache unavailable, fail-open path=%s", request.path)
+                return self.get_response(request)
             if count >= limit:
                 logger.error("sms global limit reached key=%s count=%s", key, count)
                 return JsonResponse({"code": 429, "message": "sms global rate limited", "data": None}, status=429)
             if int(count) == 0:
-                cache.set(key, 1, timeout=3700)
+                try:
+                    cache.set(key, 1, timeout=3700)
+                except Exception:
+                    logger.warning("sms breaker cache set unavailable, fail-open path=%s", request.path)
             else:
                 try:
                     cache.incr(key)
                 except ValueError:
                     cache.set(key, int(count) + 1, timeout=3700)
+                except Exception:
+                    logger.warning("sms breaker cache incr unavailable, fail-open path=%s", request.path)
         return self.get_response(request)
 
 

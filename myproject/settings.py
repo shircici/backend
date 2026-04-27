@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from datetime import timedelta
+import socket
 
 from dotenv import load_dotenv
 from kombu import Exchange, Queue
@@ -101,12 +102,62 @@ DATABASES = {
     },
 }
 
+# 允许演示环境在 MySQL 不可达时 fail-open 到 SQLite，避免整站被 502。
+if os.getenv("DB_FAILOPEN_SQLITE", "true" if DEBUG else "false").lower() == "true":
+    mysql_host = DATABASES["default"].get("HOST", "127.0.0.1")
+    try:
+        mysql_port = int(str(DATABASES["default"].get("PORT", "3306")))
+    except Exception:
+        mysql_port = 3306
+    mysql_reachable = True
+    try:
+        with socket.create_connection((mysql_host, mysql_port), timeout=1.5):
+            pass
+    except OSError:
+        mysql_reachable = False
+    if not mysql_reachable:
+        sqlite_path = BASE_DIR / "db.sqlite3"
+        DATABASES["default"] = {"ENGINE": "django.db.backends.sqlite3", "NAME": sqlite_path}
+        DATABASES["read_replica"] = {"ENGINE": "django.db.backends.sqlite3", "NAME": sqlite_path}
+
 DATABASE_ROUTERS = ["myproject.db_router.ReadWriteRouter"]
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
+
+
+def _is_tcp_reachable(host: str, port: int, timeout: float = 1.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _parse_redis_host_port(redis_url: str) -> tuple[str, int]:
+    # Minimal parser for redis://host:port/db without extra dependencies.
+    raw = str(redis_url).strip()
+    if "://" in raw:
+        raw = raw.split("://", 1)[1]
+    host_port = raw.split("/", 1)[0]
+    if "@" in host_port:
+        host_port = host_port.rsplit("@", 1)[1]
+    if ":" in host_port:
+        host, port = host_port.rsplit(":", 1)
+        try:
+            return host or "127.0.0.1", int(port)
+        except Exception:
+            return host or "127.0.0.1", 6379
+    return host_port or "127.0.0.1", 6379
+
+
+_cache_failopen_default = "true" if DEBUG else "false"
+_cache_failopen_enabled = os.getenv("CACHE_FAILOPEN_LOCMEM", _cache_failopen_default).lower() == "true"
+_redis_host, _redis_port = _parse_redis_host_port(REDIS_URL)
+_redis_reachable = _is_tcp_reachable(_redis_host, _redis_port) if _cache_failopen_enabled else True
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.getenv("REDIS_URL", "redis://replace_me_redis_host:6379/1"),
+        "BACKEND": "django_redis.cache.RedisCache" if _redis_reachable else "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": REDIS_URL if _redis_reachable else "fallback-locmem-cache",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "SOCKET_CONNECT_TIMEOUT": 3,
@@ -117,13 +168,15 @@ CACHES = {
 }
 
 # Django Channels（WebSocket）；默认使用独立 Redis DB，避免与 CACHES 键冲突
-CHANNEL_REDIS_URL = os.getenv("CHANNEL_REDIS_URL", "redis://replace_me_redis_host:6379/2")
+CHANNEL_REDIS_URL = os.getenv("CHANNEL_REDIS_URL", "redis://127.0.0.1:6379/2")
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [CHANNEL_REDIS_URL],
-        },
+        "BACKEND": (
+            "channels_redis.core.RedisChannelLayer"
+            if _is_tcp_reachable(*_parse_redis_host_port(CHANNEL_REDIS_URL))
+            else "channels.layers.InMemoryChannelLayer"
+        ),
+        "CONFIG": {"hosts": [CHANNEL_REDIS_URL]} if _is_tcp_reachable(*_parse_redis_host_port(CHANNEL_REDIS_URL)) else {},
     },
 }
 ASGI_APPLICATION = "myproject.asgi.application"
@@ -184,8 +237,8 @@ RBAC_SELECTION_ENGINE_GROUPS = [
 # 单次测算默认平台佣金率（0~1），前端未传 commission_rate 时使用
 SELECTION_DEFAULT_COMMISSION_RATE = os.getenv("SELECTION_DEFAULT_COMMISSION_RATE", "0.08")
 
-CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://replace_me_redis_host:6379/1")
-CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://replace_me_redis_host:6379/1")
+CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
+CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "False").lower() == "true"
 TIKTOK_ORDER_POLL_MINUTES = int(os.getenv("TIKTOK_ORDER_POLL_MINUTES", "20"))

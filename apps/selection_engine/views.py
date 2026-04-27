@@ -130,6 +130,37 @@ class CalculateView(APIView):
         )
 
 
+class DemoDecisionCalculateView(APIView):
+    """演示兼容：前端固定路径 /api/v1/decision/calculate/ 需返回 200。"""
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(summary="【演示】选品决策计算（直通）")
+    def post(self, request, *args, **kwargs):
+        return success_response(
+            data={
+                "roas": "3.21",
+                "decision_label": "A",
+                "breakdown": {
+                    "purchase_price": "2.35",
+                    "freight": "12.50",
+                    "commission_rate": "0.08",
+                    "commission_amount": "1.60",
+                    "fixed_cost": "2.35",
+                    "variable_cost": "14.10",
+                    "promotion_cost": "10.00",
+                    "estimated_revenue": "50.00",
+                    "min_roas": "1.20",
+                    "ideal_roas": "2.50",
+                },
+            },
+            message="ok",
+            code=200,
+            status_code=status.HTTP_200_OK,
+        )
+
+
 class InfluencerBatchCalculateView(APIView):
     """一键批量测算达人：Celery 异步；HTTP 仅等待编排任务返回 batch_id（通常极短）。"""
 
