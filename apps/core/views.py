@@ -3,6 +3,7 @@ import hashlib
 import json
 import csv
 import time
+from typing import Any, Dict
 from datetime import timedelta
 from django.conf import settings
 from django.core.paginator import Paginator
@@ -17,8 +18,10 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+import requests
 
 from apps.common.rbac_permissions import HasApiIntegratorRole
 from apps.common.responses import error_response, success_response
@@ -406,6 +409,285 @@ class AuthMeView(APIView):
                 "email": user.email,
                 "is_superuser": user.is_superuser,
             }
+        )
+
+
+class DemoAuthLoginView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】用户名密码登录（直通）")
+    def post(self, request):
+        return Response(
+            {
+                "code": 200,
+                "message": "登录成功",
+                "data": {
+                    "access_token": "tuoyue_admin_token_2026",
+                    "refresh_token": "refresh_token_string",
+                },
+            },
+            status=200,
+        )
+
+
+class DemoAuthMeView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】获取当前用户信息（直通）")
+    def get(self, request):
+        return Response(
+            {
+                "code": 200,
+                "data": {"username": "Admin", "role": "SuperAdmin", "company": "拓岳科技"},
+            },
+            status=200,
+        )
+
+
+class DemoGoodsListView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】跨境商品列表（高质量演示数据）")
+    def get(self, request):
+        items = [
+            {
+                "id": 10001,
+                "title": "2026新款 智能感应夜灯（Amazon爆款）",
+                "platform": "Amazon",
+                "sku": "TY-NL-2026-AZ",
+                "price": 19.99,
+                "currency": "USD",
+                "stock": 1280,
+                "status": "active",
+                "tags": ["Smart Home", "Best Seller", "Low MOQ"],
+                "images": [
+                    "https://img.tuoyue-tech.shop/demo/goods/nightlight_1.jpg",
+                    "https://img.tuoyue-tech.shop/demo/goods/nightlight_2.jpg",
+                ],
+                "updated_at": "2026-04-26T08:30:00+08:00",
+            },
+            {
+                "id": 10002,
+                "title": "Tuoyue Phantom 边缘计算自动化终端 RK3588（TikTok Shop）",
+                "platform": "TikTok Shop",
+                "sku": "TY-PHANTOM-RK3588",
+                "price": 229.0,
+                "currency": "USD",
+                "stock": 260,
+                "status": "active",
+                "tags": ["Edge AI", "Industrial", "Creator Favorite"],
+                "images": [
+                    "https://img.tuoyue-tech.shop/demo/goods/phantom_1.jpg",
+                    "https://img.tuoyue-tech.shop/demo/goods/phantom_2.jpg",
+                ],
+                "updated_at": "2026-04-26T08:30:00+08:00",
+            },
+            {
+                "id": 10003,
+                "title": "便携式多功能折叠水杯（1688源头厂货）",
+                "platform": "1688",
+                "sku": "TY-CUP-FOLD-1688",
+                "price": 2.35,
+                "currency": "USD",
+                "stock": 8600,
+                "status": "active",
+                "tags": ["Outdoor", "Portable", "Factory Direct"],
+                "images": [
+                    "https://img.tuoyue-tech.shop/demo/goods/foldcup_1.jpg",
+                    "https://img.tuoyue-tech.shop/demo/goods/foldcup_2.jpg",
+                ],
+                "updated_at": "2026-04-26T08:30:00+08:00",
+            },
+        ]
+        return Response({"code": 200, "data": {"total": 3, "items": items}}, status=200)
+
+
+class DemoGoodsListingSyncView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】商品上架/同步指令下发（直通）")
+    def post(self, request):
+        return Response({"code": 200, "message": "指令已下发，商品成功同步至目标平台！"}, status=200)
+
+
+class DemoGoodsBatchListingSyncView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】商品批量上架/同步指令下发（直通）")
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        item_count = len(payload.get("items", [])) if isinstance(payload.get("items"), list) else 0
+        return Response(
+            {
+                "code": 200,
+                "message": "批量上架指令已下发，任务队列处理中。",
+                "data": {"task_id": "batch_listing_20260426_demo", "item_count": item_count},
+            },
+            status=200,
+        )
+
+
+class DemoAuthSendSmsView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】发送短信验证码")
+    def post(self, request):
+        return Response(
+            {
+                "code": 200,
+                "message": "验证码发送成功",
+                "data": {"phone": (request.data or {}).get("phone", "138****8888"), "expires_in": 300},
+            },
+            status=200,
+        )
+
+
+class DemoAuthVerifySmsView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】验证短信验证码")
+    def post(self, request):
+        return Response({"code": 200, "message": "验证码校验通过", "data": {"verified": True}}, status=200)
+
+
+class DemoCollect1688SingleView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】1688 单链接采集")
+    def post(self, request):
+        return Response(
+            {
+                "code": 200,
+                "message": "采集成功",
+                "data": {
+                    "task_id": "collect_1688_single_demo_001",
+                    "status": "completed",
+                    "items": [{"title": "1688示例商品A", "source": "1688", "price": 3.99}],
+                },
+            },
+            status=200,
+        )
+
+
+class DemoCollect1688BatchView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】1688 批量采集")
+    def post(self, request):
+        return Response(
+            {
+                "code": 200,
+                "message": "批量采集任务已创建",
+                "data": {"task_id": "collect_1688_batch_demo_001", "status": "queued"},
+            },
+            status=200,
+        )
+
+
+def _ai_fallback_copy() -> Dict[str, Any]:
+    return {
+        "title": "💡 Premium Smart Product | High-Quality, Minimalist Design",
+        "description": (
+            "✨ Upgrade your daily life with a sleek, reliable product built for performance. "
+            "Designed for modern users, easy to use, and perfect for gifting."
+        ),
+        "bullets": [
+            "🚀 Fast, dependable, and built to last",
+            "🎯 Clean look with practical features",
+            "🛡️ Quality materials, worry-free use",
+            "📦 Ready for cross-border fulfillment",
+        ],
+    }
+
+
+class AiProxyView(APIView):
+    """
+    前端 AI 文案请求转发到拓岳 New API。
+    任何异常都必须兜底为演示文案，严禁向前端抛 502。
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="AI 中枢代理转发（失败兜底，永不 502）")
+    def post(self, request):
+        target_url = "https://api.tuoyue-tech.shop"
+        api_key = getattr(settings, "TUOYUE_NEW_API_AUTHORIZATION", "")
+        payload = request.data if isinstance(request.data, dict) else {}
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = api_key
+
+        try:
+            resp = requests.post(target_url, json=payload, headers=headers, timeout=10)
+            if resp.status_code >= 500:
+                return Response({"code": 200, "data": _ai_fallback_copy(), "message": "fallback"}, status=200)
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"raw": resp.text}
+            return Response({"code": 200, "data": data, "message": "success"}, status=200)
+        except Exception:
+            return Response({"code": 200, "data": _ai_fallback_copy(), "message": "fallback"}, status=200)
+
+
+class DemoAiGenerateTitleView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】AI 生成标题")
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        name = payload.get("name") or payload.get("product_name") or "Smart Product"
+        category = payload.get("category") or "Home"
+        title = f"💡 {name} | Premium {category} Choice for Global Market 2026"
+        return Response({"code": 200, "data": {"title": title}}, status=200)
+
+
+class DemoAiGenerateDescriptionView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】AI 生成描述")
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        name = payload.get("name") or payload.get("product_name") or "This product"
+        description = (
+            f"✨ {name} is designed for modern cross-border e-commerce sellers. "
+            "It combines reliable quality, attractive appearance, and practical features "
+            "to help boost conversion and customer satisfaction."
+        )
+        return Response({"code": 200, "data": {"description": description}}, status=200)
+
+
+class DemoAiGenerateFeaturesView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="【演示】AI 生成卖点")
+    def post(self, request):
+        return Response(
+            {
+                "code": 200,
+                "data": {
+                    "features": [
+                        "🚀 Fast-selling design optimized for global marketplaces",
+                        "🛡️ Durable materials with strict quality control",
+                        "📦 Cross-border friendly packaging and fulfillment readiness",
+                        "💰 Competitive landed cost with strong profit potential",
+                    ]
+                },
+            },
+            status=200,
         )
 
 
