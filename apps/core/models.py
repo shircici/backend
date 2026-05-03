@@ -370,3 +370,40 @@ class DevicePhoneRelation(models.Model):
     device_id = models.CharField(max_length=128, db_index=True)
     phone = models.CharField(max_length=32, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+class OrderRemark(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="remarks")
+    content = models.TextField()
+    operator = models.CharField(max_length=128, default="system")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["order", "created_at"]),
+        ]
+
+
+class Warehouse(models.Model):
+    name = models.CharField(max_length=255, db_index=True)
+    code = models.CharField(max_length=64, unique=True, db_index=True)
+    address = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=32, default="active", db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["code", "status"]),
+        ]
+
+
+class InventoryAdjustment(models.Model):
+    sku = models.CharField(max_length=128, db_index=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, null=True, blank=True)
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE)
+    adjustment_type = models.CharField(max_length=32, choices=[("increase", "Increase"), ("decrease", "Decrease"), ("set", "Set")])
+    quantity = models.IntegerField()
+    reason = models.CharField(max_length=255, blank=True, default="")
+    operator = models.CharField(max_length=128, default="system")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)

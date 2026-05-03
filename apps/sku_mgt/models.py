@@ -40,7 +40,7 @@ class Sku(models.Model):
        Use raw SQL migration for partitioning in production.
     """
 
-    sku_code = models.CharField(max_length=64, db_index=True)
+    sku_code = models.CharField(max_length=64, db_index=True, blank=False, null=False)
     product_id = models.BigIntegerField(db_index=True)
     product_name = models.CharField(max_length=255, db_index=True)
     category_id = models.IntegerField(db_index=True)

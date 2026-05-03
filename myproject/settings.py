@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import socket
+import json
+import time
 
 from dotenv import load_dotenv
 from kombu import Exchange, Queue
@@ -9,9 +11,35 @@ from kombu import Exchange, Queue
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+
+def _agent_log(hypothesis_id: str, message: str, data: dict) -> None:
+    # region agent log
+    try:
+        safe_data = data or {}
+        with open("debug-ac2c4e.log", "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "ac2c4e",
+                        "runId": os.getenv("AGENT_RUN_ID", "pre-fix"),
+                        "hypothesisId": hypothesis_id,
+                        "location": "myproject/settings.py",
+                        "message": message,
+                        "data": safe_data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-dev-key")
 DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
+DEMO_MODE = os.getenv("DEMO_MODE", "true" if DEBUG else "false").lower() == "true"
 
 INSTALLED_APPS = [
     "daphne",
@@ -119,6 +147,20 @@ if os.getenv("DB_FAILOPEN_SQLITE", "true" if DEBUG else "false").lower() == "tru
         sqlite_path = BASE_DIR / "db.sqlite3"
         DATABASES["default"] = {"ENGINE": "django.db.backends.sqlite3", "NAME": sqlite_path}
         DATABASES["read_replica"] = {"ENGINE": "django.db.backends.sqlite3", "NAME": sqlite_path}
+
+_agent_log(
+    "DB_H1_H2_H3",
+    "db config resolved",
+    {
+        "debug": DEBUG,
+        "db_failopen_sqlite": os.getenv("DB_FAILOPEN_SQLITE", ""),
+        "mysql_host": DATABASES.get("default", {}).get("HOST"),
+        "mysql_port": DATABASES.get("default", {}).get("PORT"),
+        "mysql_name": DATABASES.get("default", {}).get("NAME"),
+        "mysql_user": DATABASES.get("default", {}).get("USER"),
+        "engine": DATABASES.get("default", {}).get("ENGINE"),
+    },
+)
 
 DATABASE_ROUTERS = ["myproject.db_router.ReadWriteRouter"]
 

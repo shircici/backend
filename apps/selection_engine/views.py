@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+import json
+import time
 
 from django.conf import settings
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -27,6 +29,30 @@ from .services.wms import WmsFreightError
 from .tasks import batch_calculate_influencer_roas
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_log(hypothesis_id: str, message: str, data: dict) -> None:
+    # region agent log
+    try:
+        with open("debug-12656f.log", "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "12656f",
+                        "runId": "pre-fix",
+                        "hypothesisId": hypothesis_id,
+                        "location": "apps/selection_engine/views.py:CalculateView.post",
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion
 
 
 def _default_commission_rate() -> Decimal:
@@ -64,6 +90,16 @@ class CalculateView(APIView):
         product_id = ser.validated_data["product_id"]
         promotion_cost = ser.validated_data["promotion_cost"]
         estimated_revenue = ser.validated_data["estimated_revenue"]
+        _agent_log(
+            "H3_H4",
+            "calculate request validated",
+            {
+                "path": request.path,
+                "product_id": product_id,
+                "promotion_cost": str(promotion_cost),
+                "estimated_revenue": str(estimated_revenue),
+            },
+        )
         commission_rate = ser.validated_data.get("commission_rate")
         if commission_rate is None:
             commission_rate = _default_commission_rate()
@@ -84,6 +120,11 @@ class CalculateView(APIView):
             )
         except WmsFreightError as exc:
             logger.warning("WMS freight error product_id=%s err=%s", product_id, exc)
+            _agent_log(
+                "H1_H2_H4",
+                "caught WmsFreightError and returning 502",
+                {"product_id": product_id, "error": str(exc)},
+            )
             return error_response(
                 message="获取实时运费失败，请稍后重试",
                 code=502,
@@ -104,6 +145,11 @@ class CalculateView(APIView):
                 data={"error_code": ROAS_INVALID_INPUT},
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
+        _agent_log(
+            "H5",
+            "calculate succeeded",
+            {"product_id": product_id, "roas": str(roas), "label": label},
+        )
 
         input_params = {
             **{k: ser.validated_data[k] for k in ("product_id", "promotion_cost", "estimated_revenue")},
@@ -130,35 +176,12 @@ class CalculateView(APIView):
         )
 
 
-class DemoDecisionCalculateView(APIView):
-    """演示兼容：前端固定路径 /api/v1/decision/calculate/ 需返回 200。"""
+class DemoDecisionCalculateView(CalculateView):
+    """兼容旧路径：/api/v1/decision/calculate/ 直接复用真实测算实现。"""
 
-    authentication_classes = []
-    permission_classes = []
-
-    @extend_schema(summary="【演示】选品决策计算（直通）")
+    @extend_schema(summary="选品决策计算（兼容旧路径，真实生产实现）")
     def post(self, request, *args, **kwargs):
-        return success_response(
-            data={
-                "roas": "3.21",
-                "decision_label": "A",
-                "breakdown": {
-                    "purchase_price": "2.35",
-                    "freight": "12.50",
-                    "commission_rate": "0.08",
-                    "commission_amount": "1.60",
-                    "fixed_cost": "2.35",
-                    "variable_cost": "14.10",
-                    "promotion_cost": "10.00",
-                    "estimated_revenue": "50.00",
-                    "min_roas": "1.20",
-                    "ideal_roas": "2.50",
-                },
-            },
-            message="ok",
-            code=200,
-            status_code=status.HTTP_200_OK,
-        )
+        return super().post(request, *args, **kwargs)
 
 
 class InfluencerBatchCalculateView(APIView):

@@ -26,7 +26,7 @@ class SkuSerializer(serializers.ModelSerializer):
 
 
 class SkuBulkCreateItemSerializer(serializers.Serializer):
-    sku_code = serializers.CharField(max_length=64)
+    sku_code = serializers.CharField(max_length=64, allow_blank=False, trim_whitespace=True)
     product_id = serializers.IntegerField()
     product_name = serializers.CharField(max_length=255)
     category_id = serializers.IntegerField()
@@ -39,6 +39,11 @@ class SkuBulkCreateItemSerializer(serializers.Serializer):
         if value < 0:
             raise serializers.ValidationError("price must be >= 0")
         return value
+
+    def validate_sku_code(self, value: str):
+        if not value or not value.strip():
+            raise serializers.ValidationError("sku_code cannot be empty")
+        return value.strip()
 
 
 class SkuBulkCreateSerializer(serializers.Serializer):

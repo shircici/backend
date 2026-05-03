@@ -137,6 +137,20 @@ pytest
 pytest apps/core/tests/test_ops_permissions_pytest.py
 ```
 
+## 14.1 在 Docker 里跑测试（Windows/PowerShell 友好）
+不依赖 MySQL/Redis（复刻 CI 的 `settings_test`，SQLite in-memory）：
+```powershell
+.\scripts\test_in_docker.ps1
+.\scripts\test_in_docker.ps1 -Runner django
+.\scripts\test_in_docker.ps1 -- -k ops_permissions
+```
+
+需要连 MySQL/Redis 的集成测试（docker compose）：
+```bash
+docker compose up -d mysql redis
+docker compose run --rm backend-test
+```
+
 ## 15. 一键任务命令（Taskfile）
 安装 [go-task](https://taskfile.dev/) 后可使用：
 ```bash

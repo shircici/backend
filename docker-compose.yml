@@ -38,5 +38,27 @@ services:
       timeout: 3s
       retries: 10
 
+  backend-test:
+    build: .
+    container_name: backend-test
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev}
+      DEBUG: "False"
+      DJANGO_SETTINGS_MODULE: myproject.settings_integration_test
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sku_db}
+      MYSQL_USER: ${MYSQL_USER:-backend}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-backend_dev_pass}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      REDIS_URL: redis://redis:6379/1
+      CHANNEL_REDIS_URL: redis://redis:6379/2
+      CELERY_TASK_ALWAYS_EAGER: "True"
+    command: ["pytest", "-q"]
+
 volumes:
   mysql_data:

@@ -21,6 +21,27 @@ class CollectionTaskCreateSerializer(serializers.Serializer):
     target_ids = serializers.ListField(child=serializers.CharField(), allow_empty=False)
 
 
+class Collect1688SingleSerializer(serializers.Serializer):
+    url = serializers.URLField(max_length=500)
+    source = serializers.ChoiceField(choices=["1688"], default="1688")
+
+
+class Collect1688BatchSerializer(serializers.Serializer):
+    urls = serializers.ListField(child=serializers.URLField(max_length=500), allow_empty=False)
+    source = serializers.ChoiceField(choices=["1688"], default="1688")
+
+
+class GoodsListingSerializer(serializers.Serializer):
+    goods_id = serializers.IntegerField()
+    platform = serializers.ChoiceField(choices=["tiktok", "amazon", "1688"])
+    shop_id = serializers.CharField(required=False, allow_blank=True)
+
+
+class GoodsBatchListingSerializer(serializers.Serializer):
+    items = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+    platform = serializers.ChoiceField(choices=["tiktok", "amazon", "1688"])
+
+
 class CollectionTaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = CollectionTask

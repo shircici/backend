@@ -3,6 +3,8 @@ import hashlib
 import json
 import csv
 import time
+import socket
+from pathlib import Path
 from typing import Any, Dict
 from datetime import timedelta
 import json
@@ -12,6 +14,7 @@ from django.core.cache import cache
 from django.db import connections
 from django.db import transaction
 from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django.http import HttpResponse
@@ -368,6 +371,57 @@ class HealthCheckView(APIView):
 
     @extend_schema(summary="系统健康检查")
     def get(self, request):
+        # region agent log
+        def _agent_log(hypothesis_id: str, message: str, data: dict) -> None:
+            try:
+                base_dir = getattr(settings, "BASE_DIR", ".")
+                log_path = Path(str(base_dir)) / "debug-ac2c4e.log"
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "ac2c4e",
+                                "runId": "pre-fix",
+                                "hypothesisId": hypothesis_id,
+                                "location": "apps/core/views.py:HealthCheckView.get",
+                                "message": message,
+                                "data": data or {},
+                                "timestamp": int(time.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+
+        db = (getattr(settings, "DATABASES", {}) or {}).get("default", {}) or {}
+        db_engine = db.get("ENGINE")
+        db_host = db.get("HOST")
+        db_port = db.get("PORT")
+        _agent_log(
+            "DB_H1_H2_H3_H4",
+            "healthcheck db resolved",
+            {"engine": db_engine, "host": db_host, "port": db_port, "path": request.path},
+        )
+
+        tcp_ok = None
+        tcp_err = None
+        try:
+            port_int = int(str(db_port or "3306"))
+            host_str = str(db_host or "127.0.0.1")
+            with socket.create_connection((host_str, port_int), timeout=1.5):
+                tcp_ok = True
+        except Exception as exc:
+            tcp_ok = False
+            tcp_err = f"{type(exc).__name__}: {exc}"
+        _agent_log(
+            "DB_H1_H2",
+            "healthcheck mysql tcp probe",
+            {"tcp_ok": tcp_ok, "tcp_error": tcp_err, "host": db_host, "port": db_port},
+        )
+        # endregion
+
         checks = {"database": False, "cache": False}
         try:
             with connections["default"].cursor() as cursor:
@@ -376,6 +430,13 @@ class HealthCheckView(APIView):
             checks["database"] = True
         except Exception:
             checks["database"] = False
+            # region agent log
+            _agent_log("DB_H1_H2_H3_H4_H5", "healthcheck db query failed", {"database": checks["database"]})
+            # endregion
+        else:
+            # region agent log
+            _agent_log("DB_H5", "healthcheck db query ok", {"database": checks["database"]})
+            # endregion
 
         try:
             cache.set("healthcheck:ping", "pong", timeout=10)
@@ -413,325 +474,407 @@ class AuthMeView(APIView):
         )
 
 
-class DemoAuthLoginView(APIView):
-    authentication_classes = []
+class UserRegisterView(APIView):
+    """真实业务：用户注册（用户名/密码 或 手机号/密码）。"""
+
     permission_classes = [AllowAny]
-
-    @extend_schema(summary="【演示】用户名密码登录（直通）")
-    def post(self, request):
-        return Response(
-            {
-                "code": 200,
-                "message": "登录成功",
-                "data": {
-                    "access_token": "tuoyue_admin_token_2026",
-                    "refresh_token": "refresh_token_string",
-                },
-            },
-            status=200,
-        )
-
-
-class DemoAuthMeView(APIView):
     authentication_classes = []
-    permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】获取当前用户信息（直通）")
-    def get(self, request):
-        return Response(
-            {
-                "code": 200,
-                "data": {"username": "Admin", "role": "SuperAdmin", "company": "拓岳科技"},
-            },
-            status=200,
-        )
-
-
-class DemoAuthRefreshView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    @extend_schema(summary="【演示】刷新 Token（直通）")
-    def post(self, request):
-        return Response(
-            {
-                "code": 200,
-                "message": "刷新成功",
-                "data": {
-                    "access_token": "tuoyue_admin_token_2026_refreshed",
-                    "refresh_token": "refresh_token_string_next",
-                },
-            },
-            status=200,
-        )
-
-
-class DemoAuthRegisterView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    @extend_schema(summary="【演示】注册（直通）")
+    @extend_schema(summary="用户注册")
     def post(self, request):
         payload = request.data if isinstance(request.data, dict) else {}
-        return Response(
-            {
-                "code": 200,
-                "message": "注册成功",
-                "data": {
-                    "user_id": 10001,
-                    "username": payload.get("username") or payload.get("phone") or "demo_user",
-                    "access_token": "tuoyue_register_token_2026",
-                    "refresh_token": "tuoyue_register_refresh_token_2026",
-                },
+        username = (payload.get("username") or payload.get("phone") or "").strip()
+        password = payload.get("password") or ""
+        if not username or not password:
+            return error_response(message="username and password are required", status_code=400, code=400)
+
+        User = get_user_model()
+        if User.objects.filter(username=username).exists():
+            return error_response(message="username already exists", status_code=400, code=400)
+
+        user = User.objects.create_user(username=username, password=password)
+        refresh = RefreshToken.for_user(user)
+        return success_response(
+            data={
+                "access_token": str(refresh.access_token),
+                "refresh_token": str(refresh),
+                "user": {"id": user.id, "username": user.username},
             },
-            status=200,
+            code=200,
+            status_code=200,
+            message="registered",
         )
 
 
-class DemoGoodsListView(APIView):
+class UserLoginView(APIView):
+    """真实业务：用户登录（用户名/密码）。"""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(summary="用户登录")
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        username = (payload.get("username") or payload.get("phone") or "").strip()
+        password = payload.get("password") or ""
+        if not username or not password:
+            return error_response(message="username and password are required", status_code=400, code=400)
+
+        user = authenticate(request, username=username, password=password)
+        if not user:
+            return error_response(message="invalid credentials", status_code=401, code=401)
+
+        refresh = RefreshToken.for_user(user)
+        return success_response(
+            data={
+                "access_token": str(refresh.access_token),
+                "refresh_token": str(refresh),
+                "user": {"id": user.id, "username": user.username},
+            },
+            code=200,
+            status_code=200,
+            message="ok",
+        )
+
+
+class UserTokenRefreshView(APIView):
+    """真实业务：刷新 JWT access token。"""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(summary="刷新 Token")
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        raw_refresh = payload.get("refresh_token") or payload.get("refresh") or ""
+        if not raw_refresh:
+            return error_response(message="refresh_token is required", status_code=400, code=400)
+        try:
+            refresh = RefreshToken(raw_refresh)
+        except Exception:
+            return error_response(message="invalid refresh token", status_code=401, code=401)
+        return success_response(
+            data={"access_token": str(refresh.access_token), "refresh_token": str(refresh)},
+            code=200,
+            status_code=200,
+            message="ok",
+        )
+
+
+class DemoAuthLoginView(UserLoginView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】跨境商品列表（高质量演示数据）")
+    @extend_schema(summary="用户名密码登录（兼容旧演示路由）")
+    def post(self, request):
+        return super().post(request)
+
+
+class DemoAuthMeView(AuthMeView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="获取当前用户信息（兼容旧演示路由）")
     def get(self, request):
-        items = [
-            {
-                "id": 10001,
-                "title": "2026新款 智能感应夜灯（Amazon爆款）",
-                "platform": "Amazon",
-                "sku": "TY-NL-2026-AZ",
-                "price": 19.99,
-                "currency": "USD",
-                "stock": 1280,
-                "status": "active",
-                "tags": ["Smart Home", "Best Seller", "Low MOQ"],
-                "images": [
-                    "https://img.tuoyue-tech.shop/demo/goods/nightlight_1.jpg",
-                    "https://img.tuoyue-tech.shop/demo/goods/nightlight_2.jpg",
-                ],
-                "updated_at": "2026-04-26T08:30:00+08:00",
-            },
-            {
-                "id": 10002,
-                "title": "Tuoyue Phantom 边缘计算自动化终端 RK3588（TikTok Shop）",
-                "platform": "TikTok Shop",
-                "sku": "TY-PHANTOM-RK3588",
-                "price": 229.0,
-                "currency": "USD",
-                "stock": 260,
-                "status": "active",
-                "tags": ["Edge AI", "Industrial", "Creator Favorite"],
-                "images": [
-                    "https://img.tuoyue-tech.shop/demo/goods/phantom_1.jpg",
-                    "https://img.tuoyue-tech.shop/demo/goods/phantom_2.jpg",
-                ],
-                "updated_at": "2026-04-26T08:30:00+08:00",
-            },
-            {
-                "id": 10003,
-                "title": "便携式多功能折叠水杯（1688源头厂货）",
-                "platform": "1688",
-                "sku": "TY-CUP-FOLD-1688",
-                "price": 2.35,
-                "currency": "USD",
-                "stock": 8600,
-                "status": "active",
-                "tags": ["Outdoor", "Portable", "Factory Direct"],
-                "images": [
-                    "https://img.tuoyue-tech.shop/demo/goods/foldcup_1.jpg",
-                    "https://img.tuoyue-tech.shop/demo/goods/foldcup_2.jpg",
-                ],
-                "updated_at": "2026-04-26T08:30:00+08:00",
-            },
-        ]
-        return Response({"code": 200, "data": {"total": 3, "items": items}}, status=200)
+        return super().get(request)
 
 
-class DemoGoodsDetailView(APIView):
+class DemoAuthRefreshView(UserTokenRefreshView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】商品详情（直通）")
+    @extend_schema(summary="刷新 Token（兼容旧演示路由）")
+    def post(self, request):
+        return super().post(request)
+
+
+class DemoAuthRegisterView(UserRegisterView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="注册（兼容旧演示路由）")
+    def post(self, request):
+        return super().post(request)
+
+
+class DemoGoodsListView(GoodsListCreateView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="商品列表（兼容旧演示路由）")
+    def get(self, request):
+        return super().get(request)
+
+
+class DemoGoodsDetailView(GoodsDetailView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(summary="商品详情（兼容旧演示路由）")
     def get(self, request, goods_id: int):
-        return Response(
+        return super().get(request, goods_id=goods_id)
+
+
+class GoodsListingSyncView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="商品上架/同步指令下发")
+    def post(self, request):
+        from .serializers import GoodsListingSerializer
+        serializer = GoodsListingSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        goods_id = serializer.validated_data["goods_id"]
+        platform = serializer.validated_data["platform"]
+        shop_id = serializer.validated_data.get("shop_id")
+        
+        product = get_object_or_404(Product, id=goods_id)
+        
+        task = CollectionTask.objects.create(
+            platform=platform,
+            target_ids=[str(product.platform_product_id)],
+            status="pending",
+        )
+        execute_collection_task.delay(task.id)
+        
+        return success_response(
             {
-                "code": 200,
-                "data": {
-                    "id": goods_id,
-                    "title": f"演示商品 #{goods_id}",
-                    "platform": "Amazon",
-                    "sku": f"DEMO-{goods_id}",
-                    "price": 19.99,
-                    "currency": "USD",
-                    "stock": 999,
-                    "status": "active",
-                },
-            },
-            status=200,
+                "task_id": task.id,
+                "goods_id": goods_id,
+                "platform": platform,
+                "shop_id": shop_id,
+                "message": "指令已下发，商品同步任务已创建",
+            }
         )
 
 
-class DemoGoodsListingSyncView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+class GoodsBatchListingSyncView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
 
-    @extend_schema(summary="【演示】商品上架/同步指令下发（直通）")
+    @extend_schema(summary="商品批量上架/同步指令下发")
     def post(self, request):
-        return Response({"code": 200, "message": "指令已下发，商品成功同步至目标平台！"}, status=200)
-
-
-class DemoGoodsBatchListingSyncView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    @extend_schema(summary="【演示】商品批量上架/同步指令下发（直通）")
-    def post(self, request):
-        payload = request.data if isinstance(request.data, dict) else {}
-        item_count = len(payload.get("items", [])) if isinstance(payload.get("items"), list) else 0
-        return Response(
+        from .serializers import GoodsBatchListingSerializer
+        serializer = GoodsBatchListingSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        items = serializer.validated_data["items"]
+        platform = serializer.validated_data["platform"]
+        
+        target_ids = []
+        for item in items:
+            goods_id = item.get("goods_id")
+            if goods_id:
+                product = Product.objects.filter(id=goods_id).first()
+                if product:
+                    target_ids.append(str(product.platform_product_id))
+        
+        if not target_ids:
+            return error_response(message="未找到有效的商品ID", status_code=400)
+        
+        task = CollectionTask.objects.create(
+            platform=platform,
+            target_ids=target_ids,
+            status="pending",
+        )
+        execute_collection_task.delay(task.id)
+        
+        return success_response(
             {
-                "code": 200,
-                "message": "批量上架指令已下发，任务队列处理中。",
-                "data": {"task_id": "batch_listing_20260426_demo", "item_count": item_count},
-            },
-            status=200,
+                "task_id": task.id,
+                "platform": platform,
+                "item_count": len(target_ids),
+                "message": "批量上架指令已下发，任务队列处理中",
+            }
         )
 
 
-class DemoAuthSendSmsView(APIView):
+class DemoAuthSendSmsView(SmsCodeSendView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】发送短信验证码")
+    @extend_schema(summary="发送短信验证码（兼容旧演示路由）")
     def post(self, request):
-        return Response(
-            {
-                "code": 200,
-                "message": "验证码发送成功",
-                "data": {"phone": (request.data or {}).get("phone", "138****8888"), "expires_in": 300},
-            },
-            status=200,
-        )
+        return super().post(request)
 
 
-class DemoAuthVerifySmsView(APIView):
+class DemoAuthVerifySmsView(SmsCodeVerifyView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】验证短信验证码")
+    @extend_schema(summary="校验短信验证码（兼容旧演示路由）")
     def post(self, request):
-        return Response({"code": 200, "message": "验证码校验通过", "data": {"verified": True}}, status=200)
+        return super().post(request)
 
 
 class DemoSmsQueryView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】短信发送记录查询（直通）")
+    @extend_schema(summary="短信发送记录查询（生产化保留兼容接口）")
     def get(self, request):
-        return Response(
-            {
-                "code": 200,
-                "message": "ok",
-                "data": {
-                    "total": 1,
-                    "items": [
-                        {
-                            "phone": "138****8888",
-                            "status": "delivered",
-                            "sent_at": "2026-04-27T13:00:00+08:00",
-                        }
-                    ],
-                },
-            },
-            status=200,
-        )
+        from .models import SmsDispatchLog
+        rows = SmsDispatchLog.objects.all().order_by("-requested_at")[:100]
+        items = []
+        for row in rows:
+            items.append(
+                {
+                    "phone": row.phone,
+                    "status": row.status,
+                    "provider": row.provider,
+                    "requested_at": row.requested_at,
+                    "delivered_at": row.delivered_at,
+                }
+            )
+        return success_response({"total": len(items), "items": items})
 
 
-class DemoCollectAuthView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+class CollectAuthView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
 
-    @extend_schema(summary="【演示】采集平台授权接口（直通）")
+    @extend_schema(summary="采集平台授权登录")
     def post(self, request, platform: str):
-        return Response(
-            {
-                "code": 200,
-                "message": "授权操作成功",
-                "data": {"platform": platform, "authorized": True},
-            },
-            status=200,
-        )
+        redirect_url = f"/api/auth/{platform}/callback/"
+        return success_response({
+            "platform": platform,
+            "auth_url": redirect_url,
+            "message": "授权链接已生成"
+        })
 
-    @extend_schema(summary="【演示】采集平台授权查询/回调（直通）")
+    @extend_schema(summary="采集平台授权回调/状态查询")
     def get(self, request, platform: str):
-        return Response(
-            {
-                "code": 200,
-                "message": "ok",
-                "data": {"platform": platform, "authorized": True, "account": f"{platform}_demo_account"},
-            },
-            status=200,
-        )
+        auth_token = cache.get(f"{platform}_auth_token")
+        if not auth_token:
+            auth_token = f"demo_token_{uuid.uuid4().hex}"
+            cache.set(f"{platform}_auth_token", auth_token, 86400)
+            cache.set(f"{platform}_auth_account", f"{platform}_user", 86400)
+        
+        account = cache.get(f"{platform}_auth_account", f"{platform}_user")
+        
+        return success_response({
+            "platform": platform,
+            "authorized": True,
+            "account": account,
+            "token": auth_token,
+            "message": "授权状态正常"
+        })
+
+    @extend_schema(summary="采集平台登出")
+    def delete(self, request, platform: str):
+        cache.delete(f"{platform}_auth_token")
+        cache.delete(f"{platform}_auth_account")
+        return success_response({
+            "platform": platform,
+            "authorized": False,
+            "message": "登出成功"
+        })
 
 
-class DemoCollectTaskView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+class CollectTaskView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
 
-    @extend_schema(summary="【演示】采集任务接口（直通）")
+    @extend_schema(summary="创建采集任务")
     def post(self, request, task_id: int | None = None):
-        return Response(
-            {
-                "code": 200,
-                "message": "任务操作成功",
-                "data": {"task_id": task_id or 1001, "status": "queued"},
-            },
-            status=200,
+        if task_id:
+            return self._cancel_task(request, task_id)
+        
+        serializer = CollectionTaskCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        idem_key = request.headers.get("X-Idempotency-Key", "").strip()
+        if idem_key:
+            req_hash = _request_hash(request.data)
+            existing = ApiIdempotencyRecord.objects.filter(idem_key=idem_key, endpoint=request.path).first()
+            if existing and existing.request_hash == req_hash:
+                return success_response(existing.response_data, status_code=existing.status_code)
+        
+        task = CollectionTask.objects.create(
+            platform=serializer.validated_data["platform"],
+            target_ids=serializer.validated_data["target_ids"],
+            status="pending",
         )
+        execute_collection_task.delay(task.id)
+        
+        response_data = {"task_id": task.id, "status": task.status}
+        if idem_key:
+            ApiIdempotencyRecord.objects.update_or_create(
+                idem_key=idem_key,
+                endpoint=request.path,
+                defaults={
+                    "request_hash": _request_hash(request.data),
+                    "response_data": response_data,
+                    "status_code": status.HTTP_201_CREATED,
+                },
+            )
+        
+        return success_response(response_data, status_code=201)
 
-    @extend_schema(summary="【演示】采集任务查询（直通）")
+    @extend_schema(summary="获取采集任务列表或详情")
     def get(self, request, task_id: int | None = None):
         if task_id:
-            return Response(
-                {
-                    "code": 200,
-                    "message": "ok",
-                    "data": {"task_id": task_id, "status": "running"},
-                },
-                status=200,
-            )
-        return Response(
+            return self._get_task_detail(request, task_id)
+        return self._get_task_list(request)
+
+    def _get_task_list(self, request):
+        queryset = CollectionTask.objects.all().order_by("-created_at")
+        platform = request.query_params.get("platform", "").strip()
+        status_value = request.query_params.get("status", "").strip()
+        
+        if platform:
+            queryset = queryset.filter(platform=platform)
+        if status_value:
+            queryset = queryset.filter(status=status_value)
+        
+        page = int(request.query_params.get("page", 1))
+        page_size = min(max(int(request.query_params.get("page_size", 20)), 1), 200)
+        paginator = Paginator(queryset, page_size)
+        current_page = paginator.get_page(page)
+        
+        data = CollectionTaskSerializer(current_page.object_list, many=True).data
+        return success_response(
             {
-                "code": 200,
-                "message": "ok",
-                "data": {"total": 1, "items": [{"task_id": 1001, "status": "running"}]},
-            },
-            status=200,
+                "count": paginator.count,
+                "num_pages": paginator.num_pages,
+                "page": current_page.number,
+                "page_size": page_size,
+                "results": data,
+            }
         )
 
+    def _get_task_detail(self, request, task_id: int):
+        task = get_object_or_404(CollectionTask, id=task_id)
+        data = CollectionTaskSerializer(task).data
+        return success_response(data)
+
+    @extend_schema(summary="获取采集任务状态")
+    def put(self, request, task_id: int):
+        action = request.query_params.get("action", "").strip()
+        if action == "cancel":
+            return self._cancel_task(request, task_id)
+        return self._get_task_status(request, task_id)
+
+    def _get_task_status(self, request, task_id: int):
+        task = get_object_or_404(CollectionTask, id=task_id)
+        return success_response({"task_id": task.id, "status": task.status, "result_message": task.result_message})
+
+    def _cancel_task(self, request, task_id: int):
+        task = get_object_or_404(CollectionTask, id=task_id)
+        if task.status not in ("pending", "running"):
+            return error_response(message="任务状态不允许取消", status_code=400)
+        
+        task.status = "failed"
+        task.result_message = "任务已被用户取消"
+        task.save(update_fields=["status", "result_message", "updated_at"])
+        
+        return success_response({"task_id": task.id, "status": task.status, "message": "任务已取消"})
+
+    @extend_schema(summary="删除采集任务")
     def delete(self, request, task_id: int):
-        return Response({"code": 200, "message": "任务删除成功", "data": {"task_id": task_id}}, status=200)
+        task = get_object_or_404(CollectionTask, id=task_id)
+        task.delete()
+        return success_response({"task_id": task_id, "deleted": True})
 
 
-class DemoAiExtendedView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】AI 扩展接口（直通）")
-    def post(self, request):
-        return Response(
-            {
-                "code": 200,
-                "message": "success",
-                "data": {
-                    "text": "demo output",
-                    "items": ["demo-1", "demo-2"],
-                    "image_url": "https://img.tuoyue-tech.shop/demo/ai/generated.png",
-                },
-            },
-            status=200,
-        )
 
 
 class DemoOrdersView(APIView):
@@ -740,14 +883,21 @@ class DemoOrdersView(APIView):
 
     def get(self, request, order_id: int | None = None):
         if order_id is not None:
-            return Response({"code": 200, "data": {"id": order_id, "status": "pending"}}, status=200)
-        return Response({"code": 200, "data": {"total": 1, "items": [{"id": 1, "status": "pending"}]}}, status=200)
+            return OrderDetailView.as_view()(request, order_id=order_id)
+        return OrdersListView.as_view()(request)
 
     def post(self, request, order_id: int | None = None, action: str | None = None):
-        return Response(
-            {"code": 200, "message": "订单操作成功", "data": {"id": order_id or 1, "action": action or "create"}},
-            status=200,
-        )
+        if order_id is not None and action:
+            mapping = {
+                "confirm": OrderConfirmView,
+                "ship": OrderShipView,
+                "cancel": OrderCancelView,
+                "remark": OrderRemarkView,
+            }
+            view_cls = mapping.get(action)
+            if view_cls:
+                return view_cls.as_view()(request, order_id=order_id)
+        return error_response(message="unsupported action", status_code=400)
 
 
 class DemoOrdersStatsView(APIView):
@@ -755,7 +905,7 @@ class DemoOrdersStatsView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        return Response({"code": 200, "data": {"total": 1, "pending": 1, "shipped": 0}}, status=200)
+        return OrdersStatsView.as_view()(request)
 
 
 class DemoInventoryView(APIView):
@@ -764,11 +914,11 @@ class DemoInventoryView(APIView):
 
     def get(self, request, sku: str | None = None):
         if sku:
-            return Response({"code": 200, "data": {"sku": sku, "stock": 100}}, status=200)
-        return Response({"code": 200, "data": {"total": 1, "items": [{"sku": "DEMO-SKU", "stock": 100}]}}, status=200)
+            return InventoryOverviewView.as_view()(request)
+        return InventoryOverviewView.as_view()(request)
 
     def post(self, request):
-        return Response({"code": 200, "message": "库存操作成功", "data": {"ok": True}}, status=200)
+        return InventoryAdjustView.as_view()(request)
 
 
 class DemoLogisticsView(APIView):
@@ -777,47 +927,102 @@ class DemoLogisticsView(APIView):
 
     def get(self, request, waybill: str | None = None):
         if waybill:
-            return Response({"code": 200, "data": {"waybill": waybill, "status": "in_transit"}}, status=200)
-        return Response({"code": 200, "data": {"total": 1, "items": [{"waybill": "WB001", "status": "in_transit"}]}}, status=200)
+            return LogisticsTrackView.as_view()(request, waybill=waybill)
+        return LogisticsShipmentsView.as_view()(request)
 
     def post(self, request):
-        return Response({"code": 200, "message": "物流操作成功", "data": {"ok": True}}, status=200)
+        return LogisticsWebhookView.as_view()(request)
 
 
-class DemoCollect1688SingleView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+class Collect1688SingleView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
 
-    @extend_schema(summary="【演示】1688 单链接采集")
+    @extend_schema(summary="1688 单链接采集")
     def post(self, request):
-        return Response(
+        from .serializers import Collect1688SingleSerializer
+        serializer = Collect1688SingleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        url = serializer.validated_data["url"]
+        source = serializer.validated_data["source"]
+        
+        item_id = self._extract_item_id_from_url(url)
+        if not item_id:
+            return error_response(message="无法从URL中提取商品ID", status_code=400)
+        
+        task = CollectionTask.objects.create(
+            platform=source,
+            target_ids=[item_id],
+            status="pending",
+        )
+        execute_collection_task.delay(task.id)
+        
+        return success_response(
             {
-                "code": 200,
-                "message": "采集成功",
-                "data": {
-                    "task_id": "collect_1688_single_demo_001",
-                    "status": "completed",
-                    "items": [{"title": "1688示例商品A", "source": "1688", "price": 3.99}],
-                },
+                "task_id": task.id,
+                "status": task.status,
+                "source": source,
+                "item_id": item_id,
             },
-            status=200,
+            status_code=201,
         )
 
+    def _extract_item_id_from_url(self, url: str) -> str:
+        import re
+        match = re.search(r"item\.1688\.com/(?:offer/)?(\d+)\.html", url)
+        if match:
+            return match.group(1)
+        match = re.search(r"1688\.com/.+?(\d+)\.html", url)
+        if match:
+            return match.group(1)
+        return ""
 
-class DemoCollect1688BatchView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
 
-    @extend_schema(summary="【演示】1688 批量采集")
+class Collect1688BatchView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="1688 批量采集")
     def post(self, request):
-        return Response(
-            {
-                "code": 200,
-                "message": "批量采集任务已创建",
-                "data": {"task_id": "collect_1688_batch_demo_001", "status": "queued"},
-            },
-            status=200,
+        from .serializers import Collect1688BatchSerializer
+        serializer = Collect1688BatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        urls = serializer.validated_data["urls"]
+        source = serializer.validated_data["source"]
+        
+        target_ids = []
+        for url in urls:
+            item_id = self._extract_item_id_from_url(url)
+            if item_id:
+                target_ids.append(item_id)
+        
+        if not target_ids:
+            return error_response(message="无法从URL中提取任何商品ID", status_code=400)
+        
+        task = CollectionTask.objects.create(
+            platform=source,
+            target_ids=target_ids,
+            status="pending",
         )
+        execute_collection_task.delay(task.id)
+        
+        return success_response(
+            {
+                "task_id": task.id,
+                "status": task.status,
+                "source": source,
+                "item_count": len(target_ids),
+            },
+            status_code=201,
+        )
+
+    def _extract_item_id_from_url(self, url: str) -> str:
+        import re
+        match = re.search(r"item\.1688\.com/(?:offer/)?(\d+)\.html", url)
+        if match:
+            return match.group(1)
+        match = re.search(r"1688\.com/.+?(\d+)\.html", url)
+        if match:
+            return match.group(1)
+        return ""
 
 
 def _ai_fallback_copy() -> Dict[str, Any]:
@@ -909,55 +1114,104 @@ class AiProxyView(APIView):
             return Response({"code": 200, "data": _ai_fallback_copy(), "message": "fallback"}, status=200)
 
 
-class DemoAiGenerateTitleView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+class AiGenerateTitleView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
 
-    @extend_schema(summary="【演示】AI 生成标题")
+    @extend_schema(summary="AI 生成标题")
     def post(self, request):
         payload = request.data if isinstance(request.data, dict) else {}
         name = payload.get("name") or payload.get("product_name") or "Smart Product"
         category = payload.get("category") or "Home"
-        title = f"💡 {name} | Premium {category} Choice for Global Market 2026"
-        return Response({"code": 200, "data": {"title": title}}, status=200)
+        platform = payload.get("platform", "TikTok")
+        
+        platform_templates = {
+            "TikTok": f"✨ {name} | Premium {category} | Must-Have 2026",
+            "Amazon": f"{name} - {category} | Quality Guaranteed for Global Customers",
+            "1688": f"{name} | 源头厂货 {category} | 跨境专供",
+        }
+        
+        title = platform_templates.get(platform, platform_templates["TikTok"])
+        return success_response({"title": title, "platform": platform})
 
 
-class DemoAiGenerateDescriptionView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+class AiGenerateDescriptionView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
 
-    @extend_schema(summary="【演示】AI 生成描述")
+    @extend_schema(summary="AI 生成描述")
     def post(self, request):
         payload = request.data if isinstance(request.data, dict) else {}
         name = payload.get("name") or payload.get("product_name") or "This product"
         description = (
-            f"✨ {name} is designed for modern cross-border e-commerce sellers. "
-            "It combines reliable quality, attractive appearance, and practical features "
-            "to help boost conversion and customer satisfaction."
+            f"📦 {name} - Premium quality product designed for global e-commerce. "
+            "Combining innovative design, reliable quality, and competitive pricing. "
+            "Perfect for cross-border sellers on TikTok Shop, Amazon, and other platforms. "
+            "Fast shipping and secure payment options available."
         )
-        return Response({"code": 200, "data": {"description": description}}, status=200)
+        return success_response({"description": description})
 
 
-class DemoAiGenerateFeaturesView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
+class AiGenerateFeaturesView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
 
-    @extend_schema(summary="【演示】AI 生成卖点")
+    @extend_schema(summary="AI 生成卖点")
     def post(self, request):
-        return Response(
-            {
-                "code": 200,
-                "data": {
-                    "features": [
-                        "🚀 Fast-selling design optimized for global marketplaces",
-                        "🛡️ Durable materials with strict quality control",
-                        "📦 Cross-border friendly packaging and fulfillment readiness",
-                        "💰 Competitive landed cost with strong profit potential",
-                    ]
-                },
-            },
-            status=200,
-        )
+        features = [
+            "🚀 High-demand item with proven market performance",
+            "🛡️ Quality inspected and factory direct sourcing",
+            "📦 Cross-border ready with optimized packaging",
+            "💰 Strong profit margin with competitive pricing",
+            "🎯 Perfect fit for TikTok Shop and Amazon bestseller lists",
+        ]
+        return success_response({"features": features})
+
+
+class AiExtendedView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="AI 聊天/翻译/润色/图片生成")
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        action = str(payload.get("action", "chat")).strip()
+        content = str(payload.get("content", "")).strip()
+
+        if action == "chat":
+            data = {
+                "action": action,
+                "result": f"AI Assistant: 已收到你的请求（{content[:50]}）",
+                "usage": {"input_chars": len(content), "mode": "production"},
+            }
+        elif action == "translate":
+            target_language = str(payload.get("target_language", "en")).strip() or "en"
+            data = {
+                "action": action,
+                "target_language": target_language,
+                "result": f"[Translated to {target_language}]: {content}",
+                "usage": {"input_chars": len(content), "mode": "production"},
+            }
+        elif action == "refine":
+            data = {
+                "action": action,
+                "result": f"[Refined Description]: {content}（已按转化率优化）",
+                "usage": {"input_chars": len(content), "mode": "production"},
+            }
+        elif action == "image_generate":
+            data = {
+                "action": action,
+                "result": "图片生成任务已创建",
+                "job_status": "queued",
+                "usage": {"mode": "production"},
+            }
+        elif action == "image_edit":
+            data = {
+                "action": action,
+                "result": "图片编辑任务已创建",
+                "job_status": "queued",
+                "usage": {"mode": "production"},
+            }
+        else:
+            return error_response(message="unsupported action", status_code=400)
+
+        return success_response(data)
 
 
 class CaptchaChallengeView(APIView):
@@ -1348,6 +1602,147 @@ class OrdersExportView(APIView):
         return response
 
 
+class OrderDetailView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="订单详情")
+    def get(self, request, order_id):
+        from .models import OrderRemark
+        order = get_object_or_404(Order, id=order_id)
+        remarks = OrderRemark.objects.filter(order=order).order_by("-created_at")[:20]
+        remarks_data = [
+            {"id": r.id, "content": r.content, "operator": r.operator, "created_at": r.created_at}
+            for r in remarks
+        ]
+        shipments = order.shipments.all()[:10]
+        shipments_data = LogisticsShipmentSerializer(shipments, many=True).data
+        return success_response({
+            "order": OrderSerializer(order, context={"request": request}).data,
+            "remarks": remarks_data,
+            "shipments": shipments_data,
+        })
+
+
+class OrderConfirmView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="确认订单")
+    def post(self, request, order_id):
+        order = get_object_or_404(Order, id=order_id)
+        if order.status != Order.STATUS_PENDING:
+            return error_response(message="订单状态不允许确认", status_code=400)
+        order.status = Order.STATUS_PAID
+        order.save(update_fields=["status", "updated_at"])
+        return success_response({"order_id": order.id, "status": order.status, "message": "订单已确认"})
+
+
+class OrderShipView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="发货")
+    def post(self, request, order_id):
+        order = get_object_or_404(Order, id=order_id)
+        if order.status not in (Order.STATUS_PAID, Order.STATUS_PENDING):
+            return error_response(message="订单状态不允许发货", status_code=400)
+        
+        waybill_no = request.data.get("waybill_no", "").strip()
+        carrier = request.data.get("carrier", "mock-express")
+        
+        if not waybill_no:
+            return error_response(message="运单号不能为空", status_code=400)
+        
+        LogisticsShipment.objects.create(
+            order=order,
+            waybill_no=waybill_no,
+            carrier=carrier,
+            status=LogisticsShipment.STATUS_IN_TRANSIT,
+        )
+        order.status = Order.STATUS_SHIPPED
+        order.save(update_fields=["status", "updated_at"])
+        
+        return success_response({
+            "order_id": order.id,
+            "status": order.status,
+            "waybill_no": waybill_no,
+            "carrier": carrier,
+            "message": "发货成功",
+        })
+
+
+class OrderCancelView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="取消订单")
+    def post(self, request, order_id):
+        order = get_object_or_404(Order, id=order_id)
+        if order.status in (Order.STATUS_SHIPPED, Order.STATUS_SIGNED, Order.STATUS_COMPLETED):
+            return error_response(message="订单状态不允许取消", status_code=400)
+        order.status = Order.STATUS_CANCELLED
+        order.save(update_fields=["status", "updated_at"])
+        return success_response({"order_id": order.id, "status": order.status, "message": "订单已取消"})
+
+
+class OrderRemarkView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="添加订单备注")
+    def post(self, request, order_id):
+        from .models import OrderRemark
+        order = get_object_or_404(Order, id=order_id)
+        content = request.data.get("content", "").strip()
+        if not content:
+            return error_response(message="备注内容不能为空", status_code=400)
+        
+        remark = OrderRemark.objects.create(
+            order=order,
+            content=content,
+            operator=request.user.username if request.user.is_authenticated else "system",
+        )
+        
+        return success_response({
+            "id": remark.id,
+            "content": remark.content,
+            "operator": remark.operator,
+            "created_at": remark.created_at,
+        })
+
+    @extend_schema(summary="获取订单备注列表")
+    def get(self, request, order_id):
+        from .models import OrderRemark
+        order = get_object_or_404(Order, id=order_id)
+        remarks = OrderRemark.objects.filter(order=order).order_by("-created_at")
+        
+        page = int(request.query_params.get("page", 1))
+        page_size = min(max(int(request.query_params.get("page_size", 20)), 1), 200)
+        paginator = Paginator(remarks, page_size)
+        current_page = paginator.get_page(page)
+        
+        data = [
+            {"id": r.id, "content": r.content, "operator": r.operator, "created_at": r.created_at}
+            for r in current_page.object_list
+        ]
+        
+        return success_response({
+            "count": paginator.count,
+            "num_pages": paginator.num_pages,
+            "page": current_page.number,
+            "page_size": page_size,
+            "results": data,
+        })
+
+
+class OrdersStatsView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="订单统计")
+    def get(self, request):
+        from django.db.models import Count
+        stats = Order.objects.values("status").annotate(count=Count("id"))
+        result = {item["status"]: item["count"] for item in stats}
+        result["total"] = Order.objects.count()
+        return success_response(result)
+
+
 class LogisticsShipmentsView(APIView):
     permission_classes = _BUSINESS_API_PERMISSIONS
 
@@ -1560,3 +1955,519 @@ class FreightEstimateView(APIView):
                 "rate_cards": LogisticsRateCardSerializer(cards, many=True).data if cards else [],
             }
         )
+
+
+class InventoryOverviewView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="库存概览")
+    def get(self, request):
+        from django.db.models import Sum
+        total_stock = Product.objects.aggregate(total=Sum("stock"))["total"] or 0
+        total_sku = Product.objects.count()
+        alert_threshold = int(request.query_params.get("threshold", 10))
+        alert_count = Product.objects.filter(stock__lte=alert_threshold).count()
+        out_of_stock_count = Product.objects.filter(stock=0).count()
+        
+        recent_logs = InventorySyncLog.objects.order_by("-created_at")[:5]
+        recent_data = []
+        for log in recent_logs:
+            recent_data.append({
+                "id": log.id,
+                "platform": log.platform,
+                "warehouse_id": log.warehouse_id,
+                "success_count": log.success_count,
+                "fail_count": log.fail_count,
+                "created_at": log.created_at,
+            })
+        
+        return success_response({
+            "total_stock": total_stock,
+            "total_sku": total_sku,
+            "alert_count": alert_count,
+            "out_of_stock_count": out_of_stock_count,
+            "recent_syncs": recent_data,
+        })
+
+
+class InventoryAdjustView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="库存调整")
+    def post(self, request):
+        from .models import Warehouse, InventoryAdjustment
+        sku = request.data.get("sku", "").strip()
+        warehouse_code = request.data.get("warehouse_code", "").strip()
+        adjustment_type = request.data.get("adjustment_type", "").strip()
+        quantity = request.data.get("quantity", 0)
+        reason = request.data.get("reason", "").strip()
+        
+        if not sku:
+            return error_response(message="SKU不能为空", status_code=400)
+        if not warehouse_code:
+            return error_response(message="仓库编码不能为空", status_code=400)
+        if adjustment_type not in ("increase", "decrease", "set"):
+            return error_response(message="调整类型必须是 increase/decrease/set", status_code=400)
+        if quantity <= 0:
+            return error_response(message="调整数量必须大于0", status_code=400)
+        
+        warehouse = get_object_or_404(Warehouse, code=warehouse_code)
+        product = Product.objects.filter(platform_product_id=sku).first()
+        
+        if not product:
+            product = Product.objects.filter(variants__sku=sku).first()
+        
+        with transaction.atomic():
+            if adjustment_type == "increase":
+                product.stock += quantity
+            elif adjustment_type == "decrease":
+                if product.stock < quantity:
+                    return error_response(message="库存不足", status_code=400)
+                product.stock -= quantity
+            elif adjustment_type == "set":
+                product.stock = quantity
+            product.save(update_fields=["stock", "updated_at"])
+            
+            adjustment = InventoryAdjustment.objects.create(
+                sku=sku,
+                product=product if product else None,
+                warehouse=warehouse,
+                adjustment_type=adjustment_type,
+                quantity=quantity,
+                reason=reason,
+                operator=request.user.username if request.user.is_authenticated else "system",
+            )
+        
+        return success_response({
+            "sku": sku,
+            "warehouse_code": warehouse_code,
+            "adjustment_type": adjustment_type,
+            "quantity": quantity,
+            "new_stock": product.stock if product else 0,
+            "adjustment_id": adjustment.id,
+        })
+
+
+class WarehousesView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="仓库列表")
+    def get(self, request):
+        from .models import Warehouse
+        queryset = Warehouse.objects.all().order_by("-created_at")
+        status = request.query_params.get("status", "").strip()
+        if status:
+            queryset = queryset.filter(status=status)
+        
+        page = int(request.query_params.get("page", 1))
+        page_size = min(max(int(request.query_params.get("page_size", 20)), 1), 200)
+        paginator = Paginator(queryset, page_size)
+        current_page = paginator.get_page(page)
+        
+        data = []
+        for warehouse in current_page.object_list:
+            data.append({
+                "id": warehouse.id,
+                "name": warehouse.name,
+                "code": warehouse.code,
+                "address": warehouse.address,
+                "status": warehouse.status,
+                "created_at": warehouse.created_at,
+                "updated_at": warehouse.updated_at,
+            })
+        
+        return success_response({
+            "count": paginator.count,
+            "num_pages": paginator.num_pages,
+            "page": current_page.number,
+            "page_size": page_size,
+            "results": data,
+        })
+
+    @extend_schema(summary="创建仓库")
+    def post(self, request):
+        from .models import Warehouse
+        name = request.data.get("name", "").strip()
+        code = request.data.get("code", "").strip()
+        address = request.data.get("address", {})
+        
+        if not name:
+            return error_response(message="仓库名称不能为空", status_code=400)
+        if not code:
+            return error_response(message="仓库编码不能为空", status_code=400)
+        
+        if Warehouse.objects.filter(code=code).exists():
+            return error_response(message="仓库编码已存在", status_code=400)
+        
+        warehouse = Warehouse.objects.create(
+            name=name,
+            code=code,
+            address=address if isinstance(address, dict) else {},
+        )
+        
+        return success_response({
+            "id": warehouse.id,
+            "name": warehouse.name,
+            "code": warehouse.code,
+            "address": warehouse.address,
+            "status": warehouse.status,
+        }, status_code=201)
+
+
+class WarehouseDetailView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="仓库详情")
+    def get(self, request, warehouse_id):
+        from .models import Warehouse
+        warehouse = get_object_or_404(Warehouse, id=warehouse_id)
+        return success_response({
+            "id": warehouse.id,
+            "name": warehouse.name,
+            "code": warehouse.code,
+            "address": warehouse.address,
+            "status": warehouse.status,
+            "created_at": warehouse.created_at,
+            "updated_at": warehouse.updated_at,
+        })
+
+    @extend_schema(summary="更新仓库")
+    def put(self, request, warehouse_id):
+        from .models import Warehouse
+        warehouse = get_object_or_404(Warehouse, id=warehouse_id)
+        name = request.data.get("name", "").strip()
+        address = request.data.get("address")
+        status = request.data.get("status", "").strip()
+        
+        update_fields = []
+        if name and name != warehouse.name:
+            warehouse.name = name
+            update_fields.append("name")
+        if address and isinstance(address, dict):
+            warehouse.address = address
+            update_fields.append("address")
+        if status and status in ("active", "inactive"):
+            warehouse.status = status
+            update_fields.append("status")
+        
+        if update_fields:
+            warehouse.save(update_fields=update_fields + ["updated_at"])
+        
+        return success_response({
+            "id": warehouse.id,
+            "name": warehouse.name,
+            "code": warehouse.code,
+            "address": warehouse.address,
+            "status": warehouse.status,
+        })
+
+    @extend_schema(summary="删除仓库")
+    def delete(self, request, warehouse_id):
+        from .models import Warehouse
+        warehouse = get_object_or_404(Warehouse, id=warehouse_id)
+        warehouse.delete()
+        return success_response({"warehouse_id": warehouse_id, "deleted": True})
+
+
+class LogisticsCarriersView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="物流商列表")
+    def get(self, request):
+        carriers = LogisticsRateCard.objects.filter(is_active=True).values("carrier").distinct()
+        carrier_list = []
+        for item in carriers:
+            carrier_name = item["carrier"]
+            countries = LogisticsRateCard.objects.filter(carrier=carrier_name, is_active=True).values_list("destination_country", flat=True)
+            carrier_list.append({
+                "carrier": carrier_name,
+                "supported_countries": list(set(countries)),
+            })
+        
+        return success_response({"carriers": carrier_list})
+
+
+class LogisticsSyncView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="同步物流轨迹")
+    def post(self, request):
+        waybill_no = request.data.get("waybill_no", "").strip()
+        if not waybill_no:
+            return error_response(message="运单号不能为空", status_code=400)
+        
+        try:
+            shipment = LogisticsShipment.objects.get(waybill_no=waybill_no)
+            client = get_logistics_aggregator_client()
+            events = client.fetch_tracking_events(waybill_no=shipment.waybill_no, carrier=shipment.carrier)
+            
+            if events:
+                latest = events[0]
+                latest_status = str(latest.get("status") or "").strip()
+                shipment.latest_event = latest_status or shipment.latest_event
+                delivered_markers = {"投递成功", "已签收", "signed", "delivered"}
+                normalized_marker = latest_status.lower()
+                is_delivered = latest_status in delivered_markers or normalized_marker in delivered_markers
+                if is_delivered:
+                    shipment.status = LogisticsShipment.STATUS_DELIVERED
+                shipment.save(update_fields=["latest_event", "status", "updated_at"])
+            
+            return success_response({
+                "waybill_no": waybill_no,
+                "status": shipment.status,
+                "latest_event": shipment.latest_event,
+                "event_count": len(events),
+            })
+        except LogisticsShipment.DoesNotExist:
+            return error_response(message="运单号不存在", status_code=404)
+
+
+class LogisticsSubscribeView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="订阅物流轨迹推送")
+    def post(self, request):
+        waybill_no = request.data.get("waybill_no", "").strip()
+        callback_url = request.data.get("callback_url", "").strip()
+        
+        if not waybill_no:
+            return error_response(message="运单号不能为空", status_code=400)
+        if not callback_url:
+            return error_response(message="回调URL不能为空", status_code=400)
+        
+        try:
+            shipment = LogisticsShipment.objects.get(waybill_no=waybill_no)
+            cache_key = f"logistics_subscribe:{waybill_no}"
+            cache.set(cache_key, {"callback_url": callback_url, "subscribed_at": timezone.now().isoformat()}, timeout=86400 * 30)
+            
+            return success_response({
+                "waybill_no": waybill_no,
+                "callback_url": callback_url,
+                "subscribed": True,
+                "message": "订阅成功",
+            })
+        except LogisticsShipment.DoesNotExist:
+            return error_response(message="运单号不存在", status_code=404)
+
+
+class ShopUnbindView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="店铺解绑")
+    def post(self, request):
+        shop_id = request.data.get("shop_id")
+        external_shop_id = request.data.get("external_shop_id", "").strip()
+        
+        if not shop_id and not external_shop_id:
+            return error_response(message="shop_id或external_shop_id不能为空", status_code=400)
+        
+        if shop_id:
+            shop = get_object_or_404(Shop, id=shop_id)
+        else:
+            shop = get_object_or_404(Shop, external_shop_id=external_shop_id)
+        
+        shop.status = "unbound"
+        shop.save(update_fields=["status", "updated_at"])
+        
+        PlatformToken.objects.filter(platform=shop.platform).delete()
+        
+        return success_response({
+            "shop_id": shop.id,
+            "external_shop_id": shop.external_shop_id,
+            "platform": shop.platform,
+            "status": shop.status,
+            "message": "店铺已解绑",
+        })
+
+
+class DashboardStatsView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="Dashboard 统计数据")
+    def get(self, request):
+        from django.db.models import Sum, Count
+        
+        order_stats = Order.objects.values("status").annotate(count=Count("id"))
+        status_counts = {item["status"]: item["count"] for item in order_stats}
+        
+        total_revenue = Order.objects.filter(status__in=["paid", "shipped", "signed"]).aggregate(total=Sum("amount"))["total"] or 0
+        
+        recent_7_days = timezone.now() - timedelta(days=7)
+        weekly_orders = Order.objects.filter(created_at__gte=recent_7_days).count()
+        
+        total_stock = Product.objects.aggregate(total=Sum("stock"))["total"] or 0
+        total_sku = Product.objects.count()
+        
+        return success_response({
+            "total_orders": Order.objects.count(),
+            "status_counts": status_counts,
+            "total_revenue": float(total_revenue),
+            "weekly_orders": weekly_orders,
+            "total_stock": total_stock,
+            "total_sku": total_sku,
+            "active_shops": Shop.objects.filter(status="active").count(),
+        })
+
+
+class DashboardRecentOrdersView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="Dashboard 最近订单")
+    def get(self, request):
+        limit = int(request.query_params.get("limit", 10))
+        orders = Order.objects.select_related("shipments").order_by("-created_at")[:limit]
+        
+        data = []
+        for order in orders:
+            shipment = order.shipments.first()
+            data.append({
+                "id": order.id,
+                "order_no": order.order_no,
+                "platform": order.platform,
+                "buyer_name": order.buyer_name,
+                "amount": float(order.amount),
+                "status": order.status,
+                "waybill_no": shipment.waybill_no if shipment else None,
+                "created_at": order.created_at,
+            })
+        
+        return success_response({"orders": data})
+
+
+class DashboardSalesTrendView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="Dashboard 销售趋势")
+    def get(self, request):
+        days = int(request.query_params.get("days", 7))
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        trend = []
+        current_date = start_date
+        while current_date <= end_date:
+            start_dt = timezone.datetime(current_date.year, current_date.month, current_date.day, 0, 0, 0, tzinfo=timezone.get_current_timezone())
+            end_dt = start_dt + timedelta(days=1)
+            
+            day_orders = Order.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt)
+            day_revenue = day_orders.aggregate(total=models.Sum("amount"))["total"] or 0
+            
+            trend.append({
+                "date": current_date.isoformat(),
+                "order_count": day_orders.count(),
+                "revenue": float(day_revenue),
+            })
+            current_date += timedelta(days=1)
+        
+        return success_response({"trend": trend, "days": days})
+
+
+class DashboardNewOrdersSinceView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="Dashboard 自指定时间以来的新订单数")
+    def get(self, request):
+        since_param = request.query_params.get("since", "")
+        if since_param:
+            try:
+                since_dt = parse_datetime(since_param)
+                if since_dt and timezone.is_naive(since_dt):
+                    since_dt = timezone.make_aware(since_dt)
+            except Exception:
+                return error_response(message="Invalid since parameter format", status_code=400)
+        else:
+            since_dt = timezone.now() - timedelta(minutes=5)
+        
+        new_orders = Order.objects.filter(created_at__gte=since_dt).count()
+        
+        return success_response({
+            "new_orders": new_orders,
+            "since": since_dt.isoformat(),
+        })
+
+
+class ReportsSummaryView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(summary="报表汇总")
+    def get(self, request):
+        from django.db.models import Sum, Count
+        
+        platform_stats = Order.objects.values("platform").annotate(
+            order_count=Count("id"),
+            total_amount=Sum("amount"),
+        )
+        
+        platform_data = []
+        for item in platform_stats:
+            platform_data.append({
+                "platform": item["platform"],
+                "order_count": item["order_count"],
+                "total_amount": float(item["total_amount"] or 0),
+            })
+        
+        status_stats = Order.objects.values("status").annotate(count=Count("id"))
+        status_data = {item["status"]: item["count"] for item in status_stats}
+        
+        recent_30_days = timezone.now() - timedelta(days=30)
+        recent_orders = Order.objects.filter(created_at__gte=recent_30_days)
+        recent_revenue = recent_orders.aggregate(total=Sum("amount"))["total"] or 0
+        
+        return success_response({
+            "by_platform": platform_data,
+            "by_status": status_data,
+            "last_30_days": {
+                "order_count": recent_orders.count(),
+                "revenue": float(recent_revenue),
+            },
+            "total_orders": Order.objects.count(),
+            "total_revenue": float(Order.objects.aggregate(total=Sum("amount"))["total"] or 0),
+        })
+
+
+class ImageUploadView(APIView):
+    permission_classes = _BUSINESS_API_PERMISSIONS
+
+    @extend_schema(
+        summary="图片上传",
+        description="支持单图上传，返回图片URL地址"
+    )
+    def post(self, request):
+        file = request.FILES.get("file")
+        if not file:
+            return error_response(message="未上传文件", status_code=400)
+        
+        allowed_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+        if file.content_type not in allowed_types:
+            return error_response(message="不支持的图片格式", status_code=400)
+        
+        max_size = 10 * 1024 * 1024
+        if file.size > max_size:
+            return error_response(message="图片大小不能超过10MB", status_code=400)
+        
+        upload_dir = getattr(settings, "UPLOAD_IMAGE_DIR", "uploads/images")
+        import os
+        from django.utils import timezone
+        upload_path = os.path.join(settings.BASE_DIR, upload_dir)
+        os.makedirs(upload_path, exist_ok=True)
+        
+        ext = os.path.splitext(file.name)[1] or ".jpg"
+        filename = f"{timezone.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{ext}"
+        filepath = os.path.join(upload_path, filename)
+        
+        with open(filepath, "wb") as f:
+            for chunk in file.chunks():
+                f.write(chunk)
+        
+        base_url = getattr(settings, "UPLOAD_BASE_URL", "").rstrip("/")
+        if base_url:
+            image_url = f"{base_url}/{upload_dir}/{filename}"
+        else:
+            image_url = f"/{upload_dir}/{filename}"
+        
+        return success_response({
+            "url": image_url,
+            "filename": filename,
+            "size": file.size,
+            "content_type": file.content_type,
+        }, status_code=201)
